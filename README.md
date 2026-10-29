@@ -27,6 +27,8 @@ Synced coverage varies by recording; lyrics.ovh provides untimed text only. Mana
 
 Beat sync is optional and requires Screen & System Audio Recording permission. Selected-player audio is analyzed locally, without microphone capture, recordings or audio uploads.
 
+[Development history](CHANGELOG.md) records the changes across releases.
+
 ## Rights
 
 All rights reserved. No public permission to copy, modify or redistribute Afterglow is granted. See [LICENSE](LICENSE). Dependencies retain their [own licenses](THIRD_PARTY_NOTICES.md).
