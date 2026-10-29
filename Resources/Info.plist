@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleName</key><string>Afterglow</string>
+    <key>CFBundleDisplayName</key><string>Afterglow</string>
+    <key>CFBundleIdentifier</key><string>local.medhansh.afterglow</string>
+    <key>CFBundleExecutable</key><string>Afterglow</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>3.0.4</string>
+    <key>CFBundleVersion</key><string>31</string>
+    <key>CFBundleIconFile</key><string>Afterglow</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Afterglow reads song details and playback position to show synchronized lyrics, and controls playback when you press its music buttons.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Afterglow analyzes audio from your selected music player locally to animate album-colored flowing curves. It does not record files, upload audio, or use the microphone.</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><false/></dict>
+</dict></plist>
