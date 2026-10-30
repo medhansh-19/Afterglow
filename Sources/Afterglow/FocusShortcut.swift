@@ -2,20 +2,41 @@ import AppKit
 import Carbon
 import SwiftUI
 
-/// Claims one named shortcut; no event tap, keyboard monitor, or Accessibility grant.
+/// Claims a named shortcut; no event tap, keyboard monitor, or Accessibility grant.
 @MainActor
 final class FocusShortcut: ObservableObject {
   @Published private(set) var isEnabled: Bool
   @Published private(set) var isRegistered = false
   @Published private(set) var status = ""
+  private let keyCode: UInt32
+  private let identifier: UInt32
+  private let preferenceKey: String
+  private let keyLabel: String
+  private let actionLabel: String
   private var hotKey: EventHotKeyRef?
   private var handler: EventHandlerRef?
   private var action: (@MainActor () -> Void)?
   private static let signature: OSType = 0x4146_474C  // AFGL
 
-  init() {
-    isEnabled =
-      UserDefaults.standard.object(forKey: "afterglow.globalFocusShortcut") as? Bool ?? true
+  init(keyCode: UInt32 = UInt32(kVK_ANSI_F), identifier: UInt32 = 1,
+       preferenceKey: String = "afterglow.globalFocusShortcut", keyLabel: String = "⇧⌘F",
+       actionLabel: String = "Focus") {
+    self.keyCode = keyCode
+    self.identifier = identifier
+    self.preferenceKey = preferenceKey
+    self.keyLabel = keyLabel
+    self.actionLabel = actionLabel
+    isEnabled = UserDefaults.standard.object(forKey: preferenceKey) as? Bool ?? true
+  }
+
+  static func desktop() -> FocusShortcut {
+    .init(keyCode: UInt32(kVK_ANSI_D), identifier: 2,
+          preferenceKey: "afterglow.globalDesktopShortcut", keyLabel: "⇧⌘D", actionLabel: "Desktop view")
+  }
+
+  static func beatSync() -> FocusShortcut {
+    .init(keyCode: UInt32(kVK_ANSI_B), identifier: 3,
+          preferenceKey: "afterglow.globalBeatShortcut", keyLabel: "⇧⌘B", actionLabel: "Beat Sync")
   }
 
   func configure(action: @escaping @MainActor () -> Void) {
@@ -25,7 +46,7 @@ final class FocusShortcut: ObservableObject {
 
   func setEnabled(_ enabled: Bool) {
     isEnabled = enabled
-    UserDefaults.standard.set(enabled, forKey: "afterglow.globalFocusShortcut")
+    UserDefaults.standard.set(enabled, forKey: preferenceKey)
     if enabled { register() } else { unregister() }
   }
 
@@ -42,14 +63,15 @@ final class FocusShortcut: ObservableObject {
           let result = GetEventParameter(
             event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
             MemoryLayout<EventHotKeyID>.size, nil, &identifier)
-          guard result == noErr, identifier.signature == 0x4146_474C, identifier.id == 1 else {
+          guard result == noErr, identifier.signature == 0x4146_474C else {
             return OSStatus(eventNotHandledErr)
           }
-          MainActor.assumeIsolated {
+          return MainActor.assumeIsolated {
             let shortcut = Unmanaged<FocusShortcut>.fromOpaque(context).takeUnretainedValue()
+            guard identifier.id == shortcut.identifier else { return OSStatus(eventNotHandledErr) }
             shortcut.action?()
+            return noErr
           }
-          return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &handler)
       guard result == noErr else {
         status = "Global shortcut could not start. Use the waveform menu."
@@ -57,21 +79,21 @@ final class FocusShortcut: ObservableObject {
       }
     }
     let result = RegisterEventHotKey(
-      UInt32(kVK_ANSI_F), UInt32(cmdKey | shiftKey),
-      EventHotKeyID(signature: Self.signature, id: 1),
+      keyCode, UInt32(cmdKey | shiftKey),
+      EventHotKeyID(signature: Self.signature, id: identifier),
       GetEventDispatcherTarget(), OptionBits(kEventHotKeyExclusive), &hotKey)
     isRegistered = result == noErr
     status =
       isRegistered
-      ? "⇧⌘F opens Focus from any app."
-      : "⇧⌘F is unavailable. Release it in the other app, then toggle this setting again."
+      ? "\(keyLabel) toggles \(actionLabel) from any app."
+      : "\(keyLabel) is unavailable. Release it in the other app, then toggle this setting again."
   }
 
   private func unregister() {
     if let hotKey { UnregisterEventHotKey(hotKey) }
     hotKey = nil
     isRegistered = false
-    status = "⇧⌘F works only while Afterglow is active."
+    status = "\(keyLabel) works only while Afterglow is active."
   }
 
   isolated deinit {
@@ -83,7 +105,12 @@ final class FocusShortcut: ObservableObject {
 /// Keeps the global action available even after closing the ordinary display window.
 struct FocusShortcutSetup: ViewModifier {
   @ObservedObject var shortcut: FocusShortcut
+  @ObservedObject var desktopShortcut: FocusShortcut
+  @ObservedObject var beatShortcut: FocusShortcut
   let desktop: DesktopMode
+  let beats: BeatCapture
+  let model: DisplayModel
+  let panels: DisplayPanels
   let delegate: AfterglowDelegate
   @Environment(\.openWindow) private var openWindow
 
@@ -105,6 +132,29 @@ struct FocusShortcutSetup: ViewModifier {
             }
           }
         }
+      }
+      desktopShortcut.configure {
+        if desktop.window != nil {
+          desktop.toggle()
+        } else {
+          openWindow(id: "display")
+          Task { @MainActor in
+            for _ in 0..<20 {
+              if desktop.window != nil { desktop.toggle(); return }
+              try? await Task.sleep(for: .milliseconds(50))
+            }
+          }
+        }
+      }
+      beatShortcut.configure {
+        if beats.running || beats.starting { beats.stop(); return }
+        guard let source = model.source else {
+          openWindow(id: "display")
+          NSApp.activate(ignoringOtherApps: true)
+          panels.presented = .beats
+          return
+        }
+        Task { await beats.start(source: source) }
       }
       delegate.reopen = {
         guard desktop.isEnabled else { return true }

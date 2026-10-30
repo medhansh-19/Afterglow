@@ -19,7 +19,7 @@ open /Applications/Afterglow.app
 
 The installer requires `/Applications/Afterglow.app` to be absent. To build a ZIP without installing, run `zsh build.sh`; the result is `build/Afterglow.zip`. Builds are locally signed, not notarized.
 
-Start music, open Afterglow and connect your player. Grant Automation permission when prompted. Open controls with **⌘K**, toggle Focus with **⇧⌘F**, or choose Desktop Mode from the Display menu.
+Start music, open Afterglow and connect your player. Grant Automation permission when prompted. Open controls with **⌘K**, toggle Focus with **⇧⌘F**, Desktop view with **⇧⌘D**, or Beat Sync with **⇧⌘B**. Global shortcuts can be disabled in Controls → Keyboard Shortcuts.
 
 ## Lyrics & privacy
 

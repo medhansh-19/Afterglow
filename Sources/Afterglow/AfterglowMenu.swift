@@ -6,6 +6,8 @@ struct AfterglowMenu: View {
   @ObservedObject var beats: BeatCapture
   @ObservedObject var desktop: DesktopMode
   @ObservedObject var shortcut: FocusShortcut
+  @ObservedObject var desktopShortcut: FocusShortcut
+  @ObservedObject var beatShortcut: FocusShortcut
   @ObservedObject var panels: DisplayPanels
   var includeQuit = true
   @Environment(\.openWindow) private var openWindow
@@ -30,7 +32,7 @@ struct AfterglowMenu: View {
     Toggle(
       "Desktop Mode", isOn: Binding(get: { desktop.isEnabled }, set: { _ in desktop.toggle() })
     )
-    .disabled(desktop.window == nil || desktop.isTransitioning || desktop.isFocused)
+    .disabled(desktop.window == nil || desktop.isTransitioning)
     Button(desktop.isEnabled ? "Return to Window Mode" : "Open Afterglow") {
       if desktop.isEnabled { desktop.restore() }
       openWindow(id: "display")
@@ -57,12 +59,17 @@ struct AfterglowMenu: View {
       Button("Try Demo") { model.demo() }
       if model.connected { Button("Disconnect") { model.disconnect() } }
     }
-    Menu("Focus Shortcut") {
+    Menu("Keyboard Shortcuts") {
       Toggle(
         "Use ⇧⌘F Globally",
         isOn: Binding(get: { shortcut.isEnabled }, set: { shortcut.setEnabled($0) }))
       Text(shortcut.status)
-      Text("When enabled, ⇧⌘F controls Afterglow instead of the active app.")
+      Toggle("Use ⇧⌘D Globally", isOn: Binding(
+        get: { desktopShortcut.isEnabled }, set: { desktopShortcut.setEnabled($0) }))
+      Text(desktopShortcut.status)
+      Toggle("Use ⇧⌘B Globally", isOn: Binding(
+        get: { beatShortcut.isEnabled }, set: { beatShortcut.setEnabled($0) }))
+      Text(beatShortcut.status)
     }
     Button("Appearance & Wallpaper…") { present(.wallpaper) }
     Button("Lyric Library & Imports…") { present(.library) }
@@ -86,11 +93,14 @@ struct AfterglowMenu: View {
     Text(beats.state)
     if beats.running || beats.starting {
       Button("Disable Beat Sync") { beats.stop() }
+        .keyboardShortcut("b", modifiers: [.command, .shift])
     } else {
       Button("Enable Beat Sync") {
         guard let source = model.source else { return }
         Task { await beats.start(source: source) }
-      }.disabled(model.source == nil)
+      }
+      .keyboardShortcut("b", modifiers: [.command, .shift])
+      .disabled(model.source == nil)
     }
     if !model.message.isEmpty { Text(model.message) }
     if let error = model.error ?? model.controlError { Text(error) }

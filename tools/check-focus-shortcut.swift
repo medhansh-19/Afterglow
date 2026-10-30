@@ -5,12 +5,12 @@ import Carbon
   @MainActor static func main() {
     _ = NSApplication.shared
     let defaults = UserDefaults.standard
-    let prior = defaults.object(forKey: "afterglow.globalFocusShortcut")
+    let keys = ["afterglow.globalFocusShortcut", "afterglow.globalDesktopShortcut", "afterglow.globalBeatShortcut"]
+    let prior = keys.map { defaults.object(forKey: $0) }
     defer {
-      if let prior {
-        defaults.set(prior, forKey: "afterglow.globalFocusShortcut")
-      } else {
-        defaults.removeObject(forKey: "afterglow.globalFocusShortcut")
+      for (key, value) in zip(keys, prior) {
+        if let value { defaults.set(value, forKey: key) }
+        else { defaults.removeObject(forKey: key) }
       }
     }
     var count = 0
@@ -41,6 +41,31 @@ import Carbon
     second.setEnabled(true)
     check(second.isRegistered, "deinitialization releases registration and event handler")
     second.setEnabled(false)
+    var fired = [0, 0, 0]
+    let focus = FocusShortcut(), desktop = FocusShortcut.desktop(), beat = FocusShortcut.beatSync()
+    let shortcuts = [focus, desktop, beat]
+    for (index, shortcut) in shortcuts.enumerated() {
+      shortcut.configure { fired[index] += 1 }
+      shortcut.setEnabled(true)
+      check(shortcut.isRegistered, "independent shortcut \(index) registers")
+    }
+    for identifier in UInt32(1)...3 {
+      var event: EventRef?
+      check(CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kEventHotKeyPressed),
+                        0, EventAttributes(0), &event) == noErr, "create shortcut event")
+      if let event {
+        var hotKey = EventHotKeyID(signature: 0x4146_474C, id: identifier)
+        SetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                          MemoryLayout<EventHotKeyID>.size, &hotKey)
+        check(SendEventToEventTarget(event, GetEventDispatcherTarget()) == noErr, "dispatch shortcut \(identifier)")
+        ReleaseEvent(event)
+      }
+    }
+    check(fired == [1, 1, 1], "each shortcut dispatches only its own action")
+    desktop.setEnabled(false)
+    check(focus.isRegistered && beat.isRegistered && !desktop.isRegistered,
+          "disabling desktop leaves Focus and Beat Sync registered")
+    shortcuts.forEach { $0.setEnabled(false) }
     print("ALL \(count) GLOBAL SHORTCUT CHECKS PASSED")
   }
 }

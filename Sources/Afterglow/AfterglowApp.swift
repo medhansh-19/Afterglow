@@ -5,6 +5,8 @@ import SwiftUI
 struct AfterglowApp: App {
   @NSApplicationDelegateAdaptor(AfterglowDelegate.self) private var delegate
   @StateObject private var shortcut = FocusShortcut()
+  @StateObject private var desktopShortcut = FocusShortcut.desktop()
+  @StateObject private var beatShortcut = FocusShortcut.beatSync()
   @StateObject private var model = DisplayModel()
   @StateObject private var beats = BeatCapture()
   @StateObject private var desktop = DesktopMode()
@@ -14,7 +16,8 @@ struct AfterglowApp: App {
     Window("Afterglow", id: "display") {
       DisplayView(model: model, beats: beats, desktop: desktop, panels: panels, appearance: appearance)
         .background(DisplayWindowReader(mode: desktop))
-        .modifier(FocusShortcutSetup(shortcut: shortcut, desktop: desktop, delegate: delegate))
+        .modifier(FocusShortcutSetup(shortcut: shortcut, desktopShortcut: desktopShortcut,
+          beatShortcut: beatShortcut, desktop: desktop, beats: beats, model: model, panels: panels, delegate: delegate))
         .frame(minWidth: 720, minHeight: 640)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -27,7 +30,7 @@ struct AfterglowApp: App {
     .commands {
       CommandGroup(replacing: .newItem) {}
       CommandMenu("Controls") {
-        AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, panels: panels, includeQuit: false)
+        AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels, includeQuit: false)
       }
       CommandMenu("Display") {
         Button(desktop.isFocused ? "Exit Focus Mode" : "Focus Mode — Hide Widgets & Stage Manager")
@@ -42,19 +45,18 @@ struct AfterglowApp: App {
         Toggle(
           "Desktop Mode", isOn: Binding(get: { desktop.isEnabled }, set: { _ in desktop.toggle() })
         )
-        .keyboardShortcut("w", modifiers: [.command, .option])
-        .disabled(desktop.window == nil || desktop.isTransitioning || desktop.isFocused)
+        .keyboardShortcut("d", modifiers: [.command, .shift])
+        .disabled(desktop.window == nil || desktop.isTransitioning)
         Toggle(
           "Use ⇧⌘F Globally",
           isOn: Binding(get: { shortcut.isEnabled }, set: { shortcut.setEnabled($0) }))
         Text(shortcut.status)
         Button("Try demo") { model.demo() }
-          .keyboardShortcut("d", modifiers: .command)
         Button("Disconnect player") { model.disconnect() }
       }
     }
     MenuBarExtra("Afterglow", systemImage: "waveform.path") {
-      AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, panels: panels)
+      AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels)
     }
   }
 }

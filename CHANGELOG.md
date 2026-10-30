@@ -147,3 +147,9 @@ When LRCLIB has no synchronized lyrics (including outages and rate limits), Afte
 The chain is **LRCLIB → Karalyr → lyrics.ovh**. Existing LRCLIB untimed text is retained if Karalyr has no matching timed entry; lyrics.ovh is used only when lyric text is otherwise absent. Karalyr receives title, artist and duration, with at most two bounded exact requests per lookup. Both backup services have separate switches in Lyric library, enabled by default. Disabled providers are not contacted and their cached lyrics are excluded. Existing successful timed cache entries remain usable; old untimed cache decisions are refreshed once to try the new source.
 
 Coverage depends on the providers: Karalyr has a limited community catalog, and lyrics.ovh supplies untimed text only. Missing lyrics still show the existing fallback display. **Try lyrics again** bypasses cached results and misses.
+
+## V3.0.5 — Desktop and Beat Sync shortcuts
+
+Added global ⇧⌘D to toggle Desktop view and ⇧⌘B to toggle Beat Sync, alongside the existing ⇧⌘F Focus shortcut. Each global shortcut has its own preference and conflict status in Controls → Keyboard Shortcuts. Removed ⌘D from Demo; the demo remains available through the menu. Desktop view can also be entered directly from Focus.
+
+Beat Sync now lets ScreenCaptureKit request its permission directly instead of blocking capture on the older CoreGraphics permission preflight. Permission failures show a direct System Settings button and explain recovery for stale grants after locally signed app updates. The panel also explains when a player must be connected. Screen/system audio permission is still required; only the selected player's audio is analyzed.

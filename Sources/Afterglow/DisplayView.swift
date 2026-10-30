@@ -467,6 +467,13 @@ struct DisplayView: View {
         "Your lyric words and connecting graph stay unchanged. Album-colored curves appear only in timed instrumental gaps or tracks marked instrumental. With audio sync off they move at an ambient pace. Pausing freezes the visualizer."
       )
       .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      if model.source == nil {
+        Text("Connect Spotify or Apple Music before enabling beat sync.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      if beats.permissionRequired {
+        Button("Open System Settings…") { beats.openPermissionSettings() }
+      }
       HStack {
         if beats.running || beats.starting {
           Button("Disable beat sync") { beats.stop() }

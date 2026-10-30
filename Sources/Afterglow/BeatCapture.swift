@@ -1,3 +1,4 @@
+import AppKit
 import AfterglowCore
 import AudioToolbox
 import Combine
@@ -14,6 +15,7 @@ final class BeatCapture: ObservableObject {
   @Published private(set) var state = "Ambient motion"
   @Published private(set) var running = false
   @Published private(set) var starting = false
+  @Published private(set) var permissionRequired = false
   private var stream: SCStream?
   private var processor: AudioProcessor?
   private var generation = 0
@@ -23,11 +25,11 @@ final class BeatCapture: ObservableObject {
     generation += 1
     let ticket = generation
     starting = true
+    permissionRequired = false
     state = "Waiting for macOS audio permission…"
     do {
-      guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
-        throw NSError(domain: SCStreamErrorDomain, code: -3801)
-      }
+      // Ask ScreenCaptureKit directly so capture and permission reporting use
+      // the same API instead of stopping at the older CoreGraphics preflight.
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: false)
       guard generation == ticket else { return }
@@ -84,13 +86,18 @@ final class BeatCapture: ObservableObject {
       if error is BeatCaptureError {
         state = "Open the selected music player’s window, then enable beat sync again."
       } else if detail.domain == SCStreamErrorDomain && detail.code == -3801 {
-        state =
-          "Allow Afterglow in System Settings → Privacy & Security → Screen & System Audio Recording, then try again."
+        permissionRequired = true
+        state = "Allow Afterglow in Screen & System Audio Recording. If it is already enabled after an app update, remove the old entry, add /Applications/Afterglow.app again, then quit and reopen Afterglow."
       } else {
         state =
           "macOS couldn’t start live audio. Try enabling it again; ambient waves remain available."
       }
     }
+  }
+
+  func openPermissionSettings() {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
+    NSWorkspace.shared.open(url)
   }
 
   func stop() {
@@ -102,6 +109,7 @@ final class BeatCapture: ObservableObject {
     starting = false
     frame = .silent
     state = "Ambient motion"
+    permissionRequired = false
     if let previous { Task { try? await previous.stopCapture() } }
   }
 }
