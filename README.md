@@ -23,7 +23,7 @@ Start music, open Afterglow and connect your player. Grant Automation permission
 
 ## Lyrics & privacy
 
-Synced coverage varies by recording; lyrics.ovh provides untimed text only. Manage backups and imports in **Lyric library**. Track metadata goes to enabled lyric services; caches and preferences stay on your Mac.
+Fallback sources run automatically. For small duration differences, Afterglow selects the closest compatible timed recording and labels it; timing may differ slightly. Synced coverage varies; lyrics.ovh provides untimed text only. Manage backups and imports in **Lyric library**. Track metadata goes to enabled lyric services; caches and preferences stay on your Mac.
 
 Beat sync is optional and requires Screen & System Audio Recording permission. Selected-player audio is analyzed locally, without microphone capture, recordings or audio uploads.
 

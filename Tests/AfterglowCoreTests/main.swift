@@ -83,8 +83,8 @@ clock.sample(position: .nan, playing: true, sampledAt: 201, receivedAt: 201)
 expect(clock.position(at: 201), 5.4, "invalid samples cannot poison playback")
 expect(clock.position(at: 190), 4.4, "host time before anchor never rewinds media")
 expect(Lyrics.parse("[999999999999999999999999:10]bad"), [], "reject overflowing LRC minutes")
-if CommandLine.arguments.count > 1 {
-    let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+if let fixturePath = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+    let data = try Data(contentsOf: URL(fileURLWithPath: fixturePath))
     let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     let actual = Lyricsfile.parse(object["lyricsfile"] as? String ?? "")
     expect(actual.isEmpty, false, "decode real LRCLIB response")
@@ -217,8 +217,10 @@ expect(await recoveredSearch.calls().last?.path, "/api/search", "server error no
 let versionRecord = #"{"id":12,"trackName":"Song","artistName":"Artist","albumName":"Original album","duration":206,"syncedLyrics":"[00:01]Example"}"#
 let versions = FixtureTransport([response("", status: 404), response("", status: 404), response("[" + versionRecord + "]"), response("[]"), response("", status: 404), response(#"{"lyrics":"Plain text"}"#)])
 let versionResult = try await LyricsResolver(transport: versions, cache: LyricCache()).fetch(testTrack)
-expect(versionResult?.timed, false, "duration mismatch never silently applies timestamps")
-expect(versionResult?.alternatives?.first?.duration, 206, "duration mismatch available for explicit review")
+expect(versionResult?.timed, true, "nearby recording starts lyrics automatically")
+expect(versionResult?.automaticMatch, true, "closest recording is labeled automatic")
+expect(versionResult?.matchedDuration, 206, "automatic match retains provider duration")
+expect(versionResult?.alternatives?.first?.duration, 206, "automatic match still offers version overrides")
 expect(versionResult?.alternatives?.first?.document.manualMatch, true, "chosen timing labeled manual recording match")
 let cacheFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 let cacheURL = cacheFolder.appendingPathComponent("lyrics.json")
@@ -240,7 +242,7 @@ if FileManager.default.fileExists(atPath: "/tmp/afterglow-ophelia-search.json") 
     let opheliaTransport = FixtureTransport([response("", status: 404), response("", status: 404), .init(data: fixture, status: 200)])
     let ophelia = try await LyricsResolver(transport: opheliaTransport, cache: LyricCache()).fetch(.init(title: "The Fate of Ophelia", artist: "Taylor Swift", album: "The Life of a Showgirl", duration: 220), allowPlainFallback: false)
     expect(ophelia?.alternatives?.isEmpty, false, "real Ophelia response exposes alternate timed versions")
-    expect(ophelia?.timed, false, "real Ophelia duration mismatch requires explicit choice")
+    expect(ophelia?.timed, true, "nearby real recording no longer requires explicit choice")
 }
 
 let throttled = FixtureTransport([response("", status: 429), response("", status: 404), response(#"{"lyrics":"Fallback"}"#)])
@@ -503,5 +505,34 @@ expect(try await LyricsResolver(transport: upgradePlain, cache: LyricCache()).fe
 let backupRateLimit = FixtureTransport([response("", status: 429), response("", status: 429), response(#"{"lyrics":"Plain text"}"#)])
 expect(try await LyricsResolver(transport: backupRateLimit, cache: LyricCache()).fetch(testTrack)?.source, .lyricsOVH, "backup rate limit still allows untimed provider")
 expect(await backupRateLimit.calls().filter { $0.host == "karalyr.com" }.count, 1, "Karalyr rate limit stops same-provider retries")
+
+let closestRecord = versionRecord.replacingOccurrences(of: "206", with: "204")
+let autoVersions = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[" + versionRecord + "," + closestRecord + "]"), response("[]"), response("", status: 404)])
+let automatic = try await LyricsResolver(transport: autoVersions, cache: LyricCache()).fetch(testTrack)
+expect(automatic?.matchedDuration, 204, "automatically select the nearest duration")
+expect(automatic?.lines.first?.time, 1, "automatic fallback never stretches or shifts provider timestamps")
+expect(await autoVersions.calls().contains { $0.host == "api.lyrics.ovh" }, false, "nearby timed lyrics take priority over untimed fallback")
+let exactBackup = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[" + versionRecord + "]"), response("[]"), response(karalyrRecord)])
+expect(try await LyricsResolver(transport: exactBackup, cache: LyricCache()).fetch(testTrack)?.source, .karalyr,
+       "exact independent provider is preferred over a nearby recording")
+let distantVersion = versionRecord.replacingOccurrences(of: "206", with: "216")
+let distant = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[" + distantVersion + "]"), response("[]"), response("", status: 404)])
+let distantResult = try await LyricsResolver(transport: distant, cache: LyricCache()).fetch(testTrack)
+expect(distantResult?.timed, false, "large recording difference still requires explicit choice")
+expect(distantResult?.alternatives?.isEmpty, false, "distant versions remain available for manual override")
+expect(RecordingMatch.compatibleVersion(testTrack, candidateAlbum: "Song (Stripped)"), false,
+       "automatic fallback rejects a different performance disclosed in album metadata")
+let shortTrack = Track(title: "Song", artist: "Artist", album: "Deluxe", duration: 30)
+let shortVersion = versionRecord.replacingOccurrences(of: "206", with: "36")
+let shortTransport = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[" + shortVersion + "]"), response("[]"), response("", status: 404)])
+expect(try await LyricsResolver(transport: shortTransport, cache: LyricCache()).fetch(shortTrack)?.timed, false,
+       "automatic duration tolerance scales down for short tracks")
+let roundTripAutomatic = try JSONDecoder().decode(LyricDocument.self, from: JSONEncoder().encode(automatic!))
+expect(roundTripAutomatic.automaticMatch, true, "automatic provenance survives cache encoding")
+expect(legacy.automaticMatch == nil, true, "old imports decode without automatic match metadata")
 
 print("ALL \(checks) CHECKS PASSED")

@@ -42,6 +42,7 @@ final class DisplayModel: ObservableObject {
     let timed = lines.filter { !$0.words.isEmpty }.count
     let quality =
       timed == count ? "Word timestamps" : timed > 0 ? "Word + line timestamps" : "Line timestamps"
+    if lyricDocument?.automaticMatch == true { return "Automatic closest version · " + quality }
     return lyricDocument?.manualMatch == true ? "Manual version · " + quality : quality
   }
 

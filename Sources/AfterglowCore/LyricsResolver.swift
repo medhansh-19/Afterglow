@@ -27,14 +27,19 @@ public struct LyricDocument: Codable, Sendable {
     public let instrumental: Bool
     public let alternatives: [LyricAlternative]?
     public let manualMatch: Bool?
+    public let automaticMatch: Bool?
+    public let matchedDuration: Double?
     public init(lines: [LyricLine] = [], plainText: String? = nil, source: LyricSource, instrumental: Bool = false,
-                alternatives: [LyricAlternative]? = nil, manualMatch: Bool = false) {
+                alternatives: [LyricAlternative]? = nil, manualMatch: Bool = false,
+                automaticMatch: Bool = false, matchedDuration: Double? = nil) {
         self.lines = lines; self.plainText = plainText; self.source = source; self.instrumental = instrumental
         self.alternatives = alternatives; self.manualMatch = manualMatch
+        self.automaticMatch = automaticMatch; self.matchedDuration = matchedDuration
     }
     public func including(_ alternatives: [LyricAlternative]) -> LyricDocument {
         .init(lines: lines, plainText: plainText, source: source, instrumental: instrumental,
-              alternatives: alternatives, manualMatch: manualMatch == true)
+              alternatives: alternatives, manualMatch: manualMatch == true,
+              automaticMatch: automaticMatch == true, matchedDuration: matchedDuration)
     }
     public var timed: Bool { lines.contains { !$0.text.isEmpty } }
 }
@@ -70,6 +75,17 @@ public enum RecordingMatch {
             .replacingOccurrences(of: "’", with: "").replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "&", with: " and ")
         return String(lower.map { $0.isLetter || $0.isNumber ? $0 : " " }).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
+    /// Albums sometimes disclose a different performance even when the title omits it.
+    public static func compatibleVersion(_ track: Track, candidateAlbum: String) -> Bool {
+        let recording = normalize(track.title + " " + track.album)
+        let candidate = normalize(candidateAlbum)
+        let markers = ["live", "remix", "acoustic", "instrumental", "karaoke", "stripped", "sped up", "slowed"]
+        func contains(_ value: String, _ marker: String) -> Bool {
+            (" " + value + " ").contains(" " + marker + " ")
+        }
+        return markers.allSatisfy { !contains(candidate, $0) || contains(recording, $0) }
+    }
+
     public static func accepts(_ track: Track, title candidate: String, artist candidateArtist: String, duration: Double) -> Bool {
         duration.isFinite && track.duration.isFinite && track.duration > 0 && duration > 0
             && abs(duration - track.duration) <= 2
@@ -101,8 +117,8 @@ public struct URLSessionLyricTransport: LyricTransport {
         guard url.scheme == "https", ["lrclib.net", "karalyr.com", "api.lyrics.ovh"].contains(url.host ?? "") else { throw URLError(.unsupportedURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = url.path == "/api/get" ? 3 : 7
-        request.setValue("Afterglow/3.0.4 (personal macOS music display)", forHTTPHeaderField: "User-Agent")
-        if url.host == "karalyr.com" { request.setValue("afterglow/3.0.4", forHTTPHeaderField: "X-Karalyr-Client") }
+        request.setValue("Afterglow/3.0.6 (personal macOS music display)", forHTTPHeaderField: "User-Agent")
+        if url.host == "karalyr.com" { request.setValue("afterglow/3.0.6", forHTTPHeaderField: "X-Karalyr-Client") }
         let (data, response) = try await Self.session.data(for: request)
         try Task.checkCancellation()
         guard data.count <= 2_000_000, let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -133,8 +149,8 @@ public actor LyricCache {
         }
     }
     public func read(_ track: Track, allowPlain: Bool, allowTimedFallback: Bool = true) -> LyricDocument? {
-        guard var entry = entries[track], entry.document.timed || entry.matchingRevision == 3,
-              Date().timeIntervalSince(entry.saved) < (entry.document.timed ? 30 * 86400 : 600),
+        guard var entry = entries[track], entry.document.timed || entry.matchingRevision == 4,
+              Date().timeIntervalSince(entry.saved) < (entry.document.timed && entry.document.automaticMatch != true ? 30 * 86400 : 600),
               allowPlain || entry.document.source != .lyricsOVH,
               allowTimedFallback || entry.document.source != .karalyr else { return nil }
         entry.accessed = Date(); entries[track] = entry
@@ -150,7 +166,7 @@ public actor LyricCache {
     }
     public func put(_ track: Track, _ document: LyricDocument) {
         missing[track] = nil
-        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 3)
+        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 4)
         while entries.count > 64 { evictOldest() }
         persist()
     }
@@ -300,6 +316,17 @@ public struct LyricsResolver: Sendable {
                     return document
                 } catch { try propagateCancellation(error); hadFailure = true; break }
             }
+        }
+        if let closest = alternatives.first(where: { alternative in
+            let difference = abs(alternative.duration - track.duration)
+            return track.duration > 0 && difference <= min(10, track.duration * 0.05)
+                && RecordingMatch.compatibleVersion(track, candidateAlbum: alternative.album)
+        }) {
+            let result = LyricDocument(lines: closest.lines, plainText: closest.plainText,
+                source: .lrclib, alternatives: alternatives, automaticMatch: true,
+                matchedDuration: closest.duration)
+            await cache.put(track, result)
+            return result
         }
         if let plain { let result = plain.including(alternatives); await cache.put(track, result); return result }
         if allowPlainFallback {

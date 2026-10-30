@@ -153,3 +153,9 @@ Coverage depends on the providers: Karalyr has a limited community catalog, and 
 Added global ⇧⌘D to toggle Desktop view and ⇧⌘B to toggle Beat Sync, alongside the existing ⇧⌘F Focus shortcut. Each global shortcut has its own preference and conflict status in Controls → Keyboard Shortcuts. Removed ⌘D from Demo; the demo remains available through the menu. Desktop view can also be entered directly from Focus.
 
 Beat Sync now lets ScreenCaptureKit request its permission directly instead of blocking capture on the older CoreGraphics permission preflight. Permission failures show a direct System Settings button and explain recovery for stale grants after locally signed app updates. The panel also explains when a player must be connected. Screen/system audio permission is still required; only the selected player's audio is analyzed.
+
+## V3.0.6 — Automatic nearby lyric matches
+
+Resolved a common missing-lyrics case: providers returned the right title and artist but a recording a few seconds longer or shorter, so the earlier two-second exact-match rule left the display on “Lyrics not found.” After exact LRCLIB and Karalyr lookups, Afterglow now automatically selects the closest compatible timed version within ten seconds and five percent of the player duration. Versions marked as different performances in their album metadata are excluded from automatic selection. Larger differences remain available for manual review.
+
+Automatic matches are labeled in Timing and Lyric Library, retain their original provider timestamps and can be overridden. No stretching or offsets are inferred. Old untimed cache decisions refresh once; automatic nearby matches refresh after ten minutes so later exact matches can replace them. Precise timed caches and explicitly imported or selected lyrics remain available.

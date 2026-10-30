@@ -6,8 +6,8 @@
     <key>CFBundleIdentifier</key><string>local.medhansh.afterglow</string>
     <key>CFBundleExecutable</key><string>Afterglow</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>3.0.5</string>
-    <key>CFBundleVersion</key><string>32</string>
+    <key>CFBundleShortVersionString</key><string>3.0.6</string>
+    <key>CFBundleVersion</key><string>33</string>
     <key>CFBundleIconFile</key><string>Afterglow</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>

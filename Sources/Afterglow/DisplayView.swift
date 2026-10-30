@@ -521,6 +521,11 @@ struct DisplayView: View {
           }
         }.font(.caption)
       }
+      if model.lyricDocument?.automaticMatch == true,
+        let duration = model.lyricDocument?.matchedDuration, let target = model.track {
+        Text("Automatically using the closest recording (\(String(format: "%+.1f", duration - target.duration)) s). Timing may differ slightly; adjust Timing or choose another version below.")
+          .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      }
       Toggle("Try Karalyr when LRCLIB has no synced lyrics", isOn: $timedFallback)
       Toggle("Try lyrics.ovh when no lyric text is found", isOn: $plainFallback)
       Text(
@@ -552,7 +557,7 @@ struct DisplayView: View {
           {
             Text("Other timed versions").font(.headline)
             Text(
-              "These match the title and artist but may be a different recording. Compare the duration and preview before choosing. Timing may drift; it is never stretched automatically."
+              "The closest compatible version is used automatically for small duration differences. You can override it below. Larger differences still need your choice. Timing may drift; timestamps are never stretched."
             )
             .font(.caption).foregroundStyle(.secondary)
             ForEach(alternatives) { alternative in
