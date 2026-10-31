@@ -19,9 +19,13 @@ final class BeatCapture: ObservableObject {
   private var stream: SCStream?
   private var processor: AudioProcessor?
   private var generation = 0
+  private var healthCheck: Task<Void, Never>?
 
   func start(source: PlayerSource) async {
     guard !starting, !running else { return }
+    // A denied request must not summon the system prompt on every shortcut press.
+    // Retry capture once Settings reports the grant is active in this process.
+    if permissionRequired && !CGPreflightScreenCaptureAccess() { return }
     generation += 1
     let ticket = generation
     starting = true
@@ -75,11 +79,26 @@ final class BeatCapture: ObservableObject {
       self.processor = processor
       starting = false
       running = true
-      state = "Live audio from \(source.rawValue)"
+      state = "Waiting for audio from \(source.rawValue)…"
+      healthCheck = Task { [weak self] in
+        while !Task.isCancelled {
+          do { try await Task.sleep(for: .seconds(1)) } catch { return }
+          guard let self, self.generation == ticket else { return }
+          let age = ProcessInfo.processInfo.systemUptime - self.frame.timestamp
+          if self.frame.timestamp == 0 || age > 2 {
+            self.state = "No audio received from \(source.rawValue). Start playback in the selected player; if it is already playing, disable beat sync and enable it again."
+          } else if self.frame.level < 0.005 {
+            self.state = "Connected to \(source.rawValue) — audio is silent."
+          } else {
+            self.state = "Live audio from \(source.rawValue)"
+          }
+        }
+      }
     } catch {
       guard generation == ticket else { return }
       starting = false
       running = false
+      frame = .silent
       let detail = error as NSError
       Logger(subsystem: "local.medhansh.afterglow", category: "Audio").error(
         "Capture failed: \(detail.domain, privacy: .public) \(detail.code)")
@@ -102,6 +121,8 @@ final class BeatCapture: ObservableObject {
 
   func stop() {
     generation += 1
+    healthCheck?.cancel()
+    healthCheck = nil
     let previous = stream
     stream = nil
     processor = nil

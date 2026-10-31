@@ -295,36 +295,56 @@ final class DisplayModel: ObservableObject {
       return
     }
     let ticket = generation
-    lyricDocument = nil
-    lines = []
     loading = true
     message = "Finding synced lyrics…"
     let allowPlain =
       UserDefaults.standard.object(forKey: "afterglow.plainFallback") as? Bool ?? true
     lookup = Task { [weak self] in
-      do {
-        let result = try await LyricsClient().fetch(
-          target, allowPlainFallback: allowPlain,
+      // Saved timings keep the graph available while the online library is checked.
+      if let saved = await LyricCache.shared.read(target, allowPlain: allowPlain,
           allowTimedFallback: UserDefaults.standard.object(forKey: "afterglow.timedFallback") as? Bool ?? true,
-          bypassCache: bypassCache)
-        guard let self, !Task.isCancelled, self.generation == ticket, self.track == target else {
-          return
-        }
+          allowExpired: true), saved.timed,
+          let self, !Task.isCancelled, self.generation == ticket, self.track == target {
+        self.apply(saved)
         self.loading = false
-        if let result {
-          self.apply(result)
-        } else {
-          self.message = "No lyrics found for this recording. Try importing a lyric file."
+      }
+      // A transient outage or cached plain-text fallback must not leave the graph
+      // unavailable for the whole song. Refresh a bounded number of times.
+      for delay in [0, 15, 45] {
+        if delay > 0 {
+          do { try await Task.sleep(for: .seconds(delay)) } catch { return }
         }
-      } catch {
-        guard let self, !Task.isCancelled, self.generation == ticket else { return }
-        self.loading = false
-        self.message = "Lyrics couldn’t load. Check your connection and try again."
+        guard !Task.isCancelled, self?.generation == ticket, self?.track == target else { return }
+        do {
+          let result = try await LyricsClient().fetch(
+            target, allowPlainFallback: allowPlain,
+            allowTimedFallback: UserDefaults.standard.object(forKey: "afterglow.timedFallback") as? Bool ?? true,
+            bypassCache: true)
+          guard let self, !Task.isCancelled, self.generation == ticket, self.track == target else {
+            return
+          }
+          self.loading = false
+          if let result {
+            if result.timed || result.instrumental || self.lines.isEmpty { self.apply(result) }
+            if (result.timed && result.retrievedFromCache != true) || result.instrumental { return }
+          } else {
+            self.message = "Synced lyrics aren’t available for this recording. Retry or import a timed lyric file."
+          }
+        } catch {
+          guard let self, !Task.isCancelled, self.generation == ticket, self.track == target else { return }
+          self.loading = false
+          self.message = "Synced lyric sources couldn’t load. Retrying automatically…"
+        }
+      }
+      guard let self, !Task.isCancelled, self.generation == ticket else { return }
+      if self.lyricDocument == nil {
+        self.message = "Synced lyric sources are unavailable. Retry or import a timed lyric file."
       }
     }
   }
 
-  private func apply(_ document: LyricDocument) {
+  private func apply(_ input: LyricDocument) {
+    let document = input.removingCredits()
     lyricDocument = document
     lines = document.lines
     if document.timed {

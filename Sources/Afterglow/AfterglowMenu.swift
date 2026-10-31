@@ -72,6 +72,7 @@ struct AfterglowMenu: View {
       Text(beatShortcut.status)
     }
     Button("Appearance & Wallpaper…") { present(.wallpaper) }
+    Button("Lyric Cards…") { present(.cards) }
     Button("Lyric Library & Imports…") { present(.library) }
     if model.track != nil, !model.isDemo, model.lines.isEmpty {
       Button(model.loading ? "Finding Synced Lyrics…" : "Retry Synced Lyrics") { model.retryLyrics() }

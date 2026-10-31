@@ -12,7 +12,7 @@ cp .build/checkouts/Yams/LICENSE "$app/Contents/Resources/Yams-LICENSE.txt"
 if [[ -f Resources/Afterglow.icns ]]; then
     cp Resources/Afterglow.icns "$app/Contents/Resources/Afterglow.icns"
 fi
-codesign --force --options runtime --sign - --entitlements Resources/Afterglow.entitlements "$app"
+zsh tools/sign-local.sh "$app" Resources/Afterglow.entitlements
 codesign --verify --deep --strict --verbose=2 "$app"
 mkdir -p build
 ditto -c -k --norsrc --keepParent "$app" "$PWD/build/Afterglow.zip"

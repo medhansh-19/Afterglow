@@ -172,10 +172,16 @@ actor FixtureTransport: LyricTransport {
     var replies: [LyricHTTPResponse]
     var urls: [URL] = []
     let cancel: Bool
-    init(_ replies: [LyricHTTPResponse], cancel: Bool = false) { self.replies = replies; self.cancel = cancel }
+    var netEaseReplies: [LyricHTTPResponse]
+    init(_ replies: [LyricHTTPResponse], cancel: Bool = false, netEaseReplies: [LyricHTTPResponse] = []) {
+        self.replies = replies; self.cancel = cancel; self.netEaseReplies = netEaseReplies
+    }
     func get(_ url: URL) async throws -> LyricHTTPResponse {
         urls.append(url)
         if cancel { throw CancellationError() }
+        if url.host == "music.163.com" {
+            return netEaseReplies.isEmpty ? .init(data: Data(), status: 404) : netEaseReplies.removeFirst()
+        }
         guard !replies.isEmpty else { return .init(data: Data(), status: 404) }
         return replies.removeFirst()
     }
@@ -391,7 +397,7 @@ expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: tr
 var oldTimedEntry = oldEntry
 oldTimedEntry["document"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(LyricDocument(lines: [.init(time: 1, text: "Preserved")], source: .lrclib)))
 try JSONSerialization.data(withJSONObject: [oldTimedEntry]).write(to: migrationURL)
-expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true)?.timed, true, "old timed cache survives the matching upgrade")
+expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true) == nil, true, "old timed cache rechecks performance identity after matching upgrade")
 
 var border = BorderMotion()
 border.advance(at: 1, energy: 0, pulse: 0, playing: true, reducedMotion: false)
@@ -480,13 +486,40 @@ expect(enhancedLines.first?.words.last?.end, 2, "trailing enhanced timestamp bou
 expect(EnhancedLRC.parse("[00:01]<00:02>One <00:01>two").first?.words.isEmpty, true, "reject reversed word timestamps")
 expect(EnhancedLRC.parse("[00:01]Prefix <00:02>word").first?.words.isEmpty, true, "partial word timing does not highlight mismatched text")
 expect(EnhancedLRC.parse("[00:01]<00:01>One <00:05>two\n[00:03]Next").first?.words.isEmpty, true, "word timings cannot cross next line")
+let apexAPI = URL(string: "https://karalyr.com/api/get?track_name=Song")!
+let canonicalAPI = URL(string: "https://www.karalyr.com/api/get?track_name=Song")!
+expect(URLSessionLyricTransport.allows(canonicalAPI), true, "canonical Karalyr API is reachable")
+expect(URLSessionLyricTransport.allowsRedirect(from: apexAPI, to: canonicalAPI), true, "Karalyr canonical redirect preserves fallback connection")
+expect(URLSessionLyricTransport.allowsRedirect(from: apexAPI, to: URL(string: "https://example.com/api/get")!), false, "lyric redirects cannot send track details to unrelated hosts")
+expect(URLSessionLyricTransport.allowsRedirect(from: apexAPI, to: URL(string: "http://www.karalyr.com/api/get")!), false, "lyric redirects cannot downgrade HTTPS")
+expect(URLSessionLyricTransport.allowsRedirect(from: URL(string: "https://lrclib.net/api/get")!, to: canonicalAPI), false, "redirects cannot switch lyric providers")
+
+// A previously successful exact-recording lookup remains usable through an outage.
+var expiredEntry = oldTimedEntry
+expiredEntry["matchingRevision"] = 5
+expiredEntry["saved"] = Date().timeIntervalSinceReferenceDate - 31 * 86400
+let expiredURL = cacheFolder.appendingPathComponent("expired-cache.json")
+try JSONSerialization.data(withJSONObject: [expiredEntry]).write(to: expiredURL)
+let expiredCache = LyricCache(storageURL: expiredURL)
+expect(await expiredCache.read(testTrack, allowPlain: true) == nil, true, "expired lyrics still request a normal refresh")
+let outageTransport = FixtureTransport(Array(repeating: response("", status: 503), count: 12))
+let recoveredCache = try await LyricsResolver(transport: outageTransport, cache: expiredCache).fetch(testTrack)
+expect(recoveredCache?.timed, true, "provider outage keeps previously saved timed lyrics")
+var expiredPrivate = expiredEntry
+expiredPrivate["document"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(LyricDocument(plainText: "Saved untimed text", source: .lyricsOVH)))
+expiredPrivate["matchingRevision"] = 5
+try JSONSerialization.data(withJSONObject: [expiredPrivate]).write(to: expiredURL)
+let privateCache = LyricCache(storageURL: expiredURL)
+expect(await privateCache.read(testTrack, allowPlain: false, allowExpired: true) == nil, true, "outage recovery respects disabled plain fallback")
+expect(await privateCache.read(testTrack, allowPlain: true, allowExpired: true)?.plainText, "Saved untimed text", "outage recovers cached text without inventing timestamps")
+
 let karalyrRecord = #"{"trackName":"Song","artistName":"Artist","duration":200,"syncedLyrics":"[00:01]<00:01>Hello <00:02>world"}"#
 let timedBackup = FixtureTransport([response("", status: 429), response(karalyrRecord)])
 let backupCache = LyricCache()
 let backupResult = try await LyricsResolver(transport: timedBackup, cache: backupCache).fetch(testTrack)
 expect(backupResult?.source, .karalyr, "LRCLIB failure recovers timed lyrics from Karalyr")
 expect(backupResult?.lines.first?.words.count, 2, "backup uses real word timings")
-expect(await timedBackup.calls().last?.host, "karalyr.com", "backup calls independent free provider")
+expect(await timedBackup.calls().last?.host, "www.karalyr.com", "backup calls independent free provider")
 expect(await backupCache.read(testTrack, allowPlain: true, allowTimedFallback: false) == nil, true, "disabled timed fallback excludes its cached lyrics")
 let wrongBackup = FixtureTransport([response("", status: 429), response(karalyrRecord.replacingOccurrences(of: #""duration":200"#, with: #""duration":210"#)), response(#"{"lyrics":"Plain backup"}"#)])
 expect(try await LyricsResolver(transport: wrongBackup, cache: LyricCache()).fetch(testTrack)?.source, .lyricsOVH, "wrong recording in timed backup falls through to plain lyrics")
@@ -504,7 +537,7 @@ let upgradePlain = FixtureTransport([response(plainPrimary), response(plainPrima
 expect(try await LyricsResolver(transport: upgradePlain, cache: LyricCache()).fetch(testTrack)?.source, .karalyr, "timed backup takes precedence over primary untimed lyrics")
 let backupRateLimit = FixtureTransport([response("", status: 429), response("", status: 429), response(#"{"lyrics":"Plain text"}"#)])
 expect(try await LyricsResolver(transport: backupRateLimit, cache: LyricCache()).fetch(testTrack)?.source, .lyricsOVH, "backup rate limit still allows untimed provider")
-expect(await backupRateLimit.calls().filter { $0.host == "karalyr.com" }.count, 1, "Karalyr rate limit stops same-provider retries")
+expect(await backupRateLimit.calls().filter { $0.host == "www.karalyr.com" }.count, 1, "Karalyr rate limit stops same-provider retries")
 
 let closestRecord = versionRecord.replacingOccurrences(of: "206", with: "204")
 let autoVersions = FixtureTransport([response("", status: 404), response("", status: 404),
@@ -534,5 +567,239 @@ expect(try await LyricsResolver(transport: shortTransport, cache: LyricCache()).
 let roundTripAutomatic = try JSONDecoder().decode(LyricDocument.self, from: JSONEncoder().encode(automatic!))
 expect(roundTripAutomatic.automaticMatch, true, "automatic provenance survives cache encoding")
 expect(legacy.automaticMatch == nil, true, "old imports decode without automatic match metadata")
+
+// Version identity must be checked on every automatic route, including exact durations.
+for performance in ["Live", "Acoustic", "Remix", "Instrumental", "Karaoke", "Stripped", "Sped Up", "Slowed"] {
+    let wrongRecord = #"{"trackName":"Song","artistName":"Artist","albumName":"ALBUM","duration":200,"syncedLyrics":"[00:01]Wrong performance"}"#
+        .replacingOccurrences(of: "ALBUM", with: performance)
+    let exact = FixtureTransport([response(wrongRecord), response(wrongRecord), response("[]"), response("[]")])
+    expect(try await LyricsResolver(transport: exact, cache: LyricCache()).fetch(testTrack,
+        allowPlainFallback: false, allowTimedFallback: false) == nil, true, "exact endpoint rejects \(performance) album for studio song")
+}
+let liveAlbumRecord = #"{"id":9001,"trackName":"Song","artistName":"Artist","albumName":"Live at Somewhere","duration":200,"syncedLyrics":"[00:01]Wrong performance"}"#
+let wrongSearch = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[" + liveAlbumRecord + "]"), response("[]")])
+let searchVersion = try await LyricsResolver(transport: wrongSearch, cache: LyricCache()).fetch(testTrack,
+    allowPlainFallback: false, allowTimedFallback: false)
+expect(searchVersion?.timed, false, "exact-duration search result cannot bypass album performance check")
+expect(searchVersion?.alternatives?.count, 1, "different performance stays available for explicit manual choice")
+let wrongBackupPerformance = FixtureTransport([response("", status: 404), response("", status: 404),
+    response("[]"), response("[]"), response(liveAlbumRecord)])
+expect(try await LyricsResolver(transport: wrongBackupPerformance, cache: LyricCache()).fetch(testTrack,
+    allowPlainFallback: false) == nil, true, "independent backup also rejects wrong album performance")
+let liveTrack = Track(title: "Song", artist: "Artist", album: "Live at Somewhere", duration: 200)
+let correctLive = FixtureTransport([response(liveAlbumRecord)])
+expect(try await LyricsResolver(transport: correctLive, cache: LyricCache()).fetch(liveTrack)?.timed,
+    true, "matching live performance remains accepted")
+let studioForLive = FixtureTransport([response(timedRecord), response(timedRecord), response("[]"), response("[]")])
+expect(try await LyricsResolver(transport: studioForLive, cache: LyricCache()).fetch(liveTrack,
+    allowPlainFallback: false, allowTimedFallback: false) == nil, true, "studio lyrics cannot silently replace album-only live recording")
+let titledLive = Track(title: "Song (Live)", artist: "Artist", album: "Tour", duration: 200)
+expect(RecordingMatch.compatibleVersion(titledLive, candidateAlbum: "Tour", candidateTitle: "Song (Live)"),
+    true, "live marker in the matching title needs no duplicate album marker")
+var legacyPerformanceEntry = oldTimedEntry
+legacyPerformanceEntry["matchingRevision"] = 4
+try JSONSerialization.data(withJSONObject: [legacyPerformanceEntry]).write(to: migrationURL)
+expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true) == nil,
+    true, "older cache still requests fresh recording validation")
+expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true, allowExpired: true)?.timed,
+    true, "provider outage preserves previously saved synchronized lyrics after cache revision change")
+let migrationOutage = FixtureTransport(Array(repeating: response("", status: 503), count: 12))
+expect(try await LyricsResolver(transport: migrationOutage, cache: LyricCache(storageURL: migrationURL)).fetch(testTrack)?.timed,
+    true, "normal lookup recovers previous timed cache when online providers fail")
+
+let longTokens = (1...55).map { "word\($0)" }
+let longLine = LyricLine(time: 0, text: longTokens.joined(separator: " "), end: 110,
+    words: longTokens.enumerated().map { .init(text: $0.element, time: Double($0.offset) * 2, end: Double($0.offset) * 2 + 1) })
+var visitedWords: [String] = []
+for position in [0.0, 48, 96] {
+    let page = LyricWordPage.resolve(line: longLine, at: position, nextLineTime: 110, estimated: false)
+    visitedWords.append(contentsOf: page.words)
+    expect(page.words.count <= 24, true, "long lyric page stays within readable geometry at \(position)")
+    expect(page.activeIndex, 0, "word highlight is local to the visible page at \(position)")
+}
+expect(visitedWords, longTokens, "all 55 words appear once across constellation pages")
+expect(LyricWordPage.resolve(line: longLine, at: 50, nextLineTime: 110, estimated: false).activeIndex, 1,
+    "word 26 remains visibly highlighted after the old cutoff")
+expect(LyricWordPage.resolve(line: longLine, at: 49.5, nextLineTime: 110, estimated: false).range.lowerBound, 24,
+    "real gap between words holds the reached page")
+expect(LyricWordPage.resolve(line: longLine, at: 49.5, nextLineTime: 110, estimated: false).activeIndex, nil,
+    "real gaps never fabricate a highlighted word")
+expect(LyricWordPage.resolve(line: longLine, at: 2, nextLineTime: 110, estimated: false).range.lowerBound, 0,
+    "backward seek immediately returns to the earlier page")
+let lineOnlyLong = LyricLine(time: 0, text: longTokens.joined(separator: " "), end: 110)
+expect(LyricScene.resolve(lines: [lineOnlyLong], at: 109, duration: 110).lineIndex, 0,
+    "dense long verse stays on screen long enough to display every page")
+let lineOnlyPage = LyricWordPage.resolve(line: lineOnlyLong, at: 109.9, nextLineTime: 110, estimated: false)
+expect(lineOnlyPage.words.last, "word55", "line-only lyrics reach the final words with emphasis disabled")
+expect(lineOnlyPage.activeIndex, nil, "line-only page turns respect disabled estimated word emphasis")
+expect(LyricWordPage.resolve(line: lineOnlyLong, at: 109.9, nextLineTime: 110, estimated: true).words.last,
+    "word55", "estimated word mode also reaches final page")
+expect(LyricWordPage.resolve(line: Demo.wordTimedLines[0], at: 1, nextLineTime: 6, estimated: false).words,
+    Demo.wordTimedLines[0].words.map(\.text), "ordinary lyric graphs keep their complete existing layout")
+expect(LyricWordPage.resolve(line: .init(time: 0, text: ""), at: 0, nextLineTime: 1, estimated: true).words,
+    [], "empty lyrics produce no page")
+
+let independentMetadata = #"{"code":200,"result":{"songs":[{"id":42,"name":"Song","artists":[{"name":"Artist"}],"album":{"name":"Original"},"duration":200000}]}}"#
+let independentLyrics = #"{"code":200,"lrc":{"lyric":"[00:01]Original words\n[00:03]Next line"}}"#
+let independent = FixtureTransport(Array(repeating: response("", status: 503), count: 12),
+    netEaseReplies: [response(independentMetadata), response(independentLyrics)])
+let independentCache = LyricCache()
+let independentDocument = try await LyricsResolver(transport: independent, cache: independentCache).fetch(testTrack)
+expect(independentDocument?.source, .netease, "independent synced provider survives LRCLIB outage")
+expect(independentDocument?.lines.map(\.time), [1, 3], "independent provider keeps supplied timestamps for the word graph")
+expect(independentDocument?.lines.allSatisfy { $0.words.isEmpty }, true, "line source never fabricates word timestamps")
+expect(await independentCache.read(testTrack, allowPlain: true, allowTimedFallback: false) == nil, true, "disabled synced backups exclude NetEase cache")
+let mismatchIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata.replacingOccurrences(of: "200000", with: "240000"))])
+_ = try await LyricsResolver(transport: mismatchIndependent, cache: LyricCache()).fetch(testTrack)
+expect(await mismatchIndependent.calls().contains { $0.path == "/api/song/lyric/v1" }, false, "wrong recording duration never fetches NetEase lyrics")
+let upgradeIndependentCache = LyricCache()
+await upgradeIndependentCache.put(testTrack, LyricDocument(plainText: "Previously cached plain text", source: .lyricsOVH))
+let upgradeIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata), response(independentLyrics)])
+expect(try await LyricsResolver(transport: upgradeIndependent, cache: upgradeIndependentCache).fetch(testTrack)?.source, .netease, "cached untimed text upgrades to synchronized graph data")
+let disabledIndependent = FixtureTransport([])
+_ = try await LyricsResolver(transport: disabledIndependent, cache: LyricCache()).fetch(testTrack, allowTimedFallback: false)
+expect(await disabledIndependent.calls().contains { $0.host == "music.163.com" }, false, "disabled synchronized backup sends no metadata to NetEase")
+
+let nearbyIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata.replacingOccurrences(of: "200000", with: "206000")), response(independentLyrics)])
+let nearbyIndependentResult = try await LyricsResolver(transport: nearbyIndependent, cache: LyricCache()).fetch(testTrack)
+expect(nearbyIndependentResult?.automaticMatch, true, "nearby independent recording is explicitly labeled automatic")
+expect(nearbyIndependentResult?.matchedDuration, 206, "nearby independent recording retains its real duration")
+let collaborativeIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata.replacingOccurrences(of: #"[{"name":"Artist"}]"#, with: #"[{"name":"Artist"},{"name":"Guest"}]"#)), response(independentLyrics)])
+expect(try await LyricsResolver(transport: collaborativeIndependent, cache: LyricCache()).fetch(testTrack)?.timed,
+    true, "primary-only Spotify metadata can match the same titled collaboration")
+let explicitGuestTrack = Track(title: "Song (feat. Different Guest)", artist: "Artist", album: "Deluxe", duration: 200)
+let wrongGuestIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata.replacingOccurrences(of: #"[{"name":"Artist"}]"#, with: #"[{"name":"Artist"},{"name":"Guest"}]"#))])
+_ = try await LyricsResolver(transport: wrongGuestIndependent, cache: LyricCache()).fetch(explicitGuestTrack)
+expect(await wrongGuestIndependent.calls().contains { $0.path == "/api/song/lyric/v1" }, false, "explicit feature credits reject a different guest")
+
+var harmlessTailEntry = legacyPerformanceEntry
+harmlessTailEntry["document"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(LyricDocument(lines: [.init(time: 1, text: "Saved line"), .init(time: 204, text: "")], source: .lrclib)))
+try JSONSerialization.data(withJSONObject: [harmlessTailEntry]).write(to: migrationURL)
+expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true, allowExpired: true)?.timed,
+    true, "small provider outro timestamp does not discard an entire saved song")
+var invalidTailEntry = harmlessTailEntry
+invalidTailEntry["document"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(LyricDocument(lines: [.init(time: 900, text: "Wrong recording")], source: .lrclib)))
+try JSONSerialization.data(withJSONObject: [invalidTailEntry]).write(to: migrationURL)
+expect(await LyricCache(storageURL: migrationURL).read(testTrack, allowPlain: true, allowExpired: true) == nil,
+    true, "cache migration still rejects substantially out-of-bounds timestamps")
+
+let suppliedYRC = "[10700,4230](10700,1110,0)Original (11810,1230,0)words (13040,300,0)stay (13340,1590,0)here"
+let yrcLines = NetEaseYRC.parse(suppliedYRC)
+expect(yrcLines.first?.time, 10.7, "YRC line start preserves milliseconds")
+expect(yrcLines.first?.end, 14.93, "YRC preserves supplied line end")
+expect(yrcLines.first?.words.map(\.time), [10.7, 11.81, 13.04, 13.34], "YRC uses absolute word starts rather than estimating")
+expect(yrcLines.first?.words.first?.end, 11.81, "YRC retains each word duration")
+expect(NetEaseYRC.parse("[1000,2000](500,200,0)Invalid"), [], "YRC rejects words before their line")
+expect(NetEaseYRC.parse("[1000,2000](1000,3000,0)Invalid"), [], "YRC rejects words beyond their line")
+expect(NetEaseYRC.parse("[1000,3000](1000,2000,0)First(2000,1000,0)Overlap"), [], "YRC rejects overlapping word intervals")
+for credit in ["作曲 : Composer Name", "作词：Writer Name", "Producer: A Person", "Written by: Someone", "混音 : Studio"] {
+    expect(LyricCredits.isCredit(credit), true, "role label is removed: \(credit)")
+}
+for vocal in ["You are the producer of my dreams", "Daniel stayed with me", "I wrote a song for you", "We mix it up"] {
+    expect(LyricCredits.isCredit(vocal), false, "normal lyric text survives credit filtering")
+}
+let creditBoundary = LyricCredits.clean([.init(time: 0, text: "作曲 : Name"), .init(time: 10, text: "Actual lyric")])
+expect(creditBoundary.first?.text, "", "credit interval becomes a gap rather than a held lyric")
+expect(creditBoundary.last?.time, 10, "removing credits never shifts real lyric timestamps")
+let suppliedWordPayload = #"{"code":200,"lrc":{"lyric":"[00:01]Old timing\n[00:03]Next line"},"yrc":{"lyric":"[2000,1000](2000,500,0)Original (2500,500,0)words\n[4000,1000](4000,500,0)Next (4500,500,0)line"}}"#
+let wordSource = FixtureTransport([], netEaseReplies: [response(independentMetadata), response(suppliedWordPayload)])
+let wordSourceResult = try await LyricsResolver(transport: wordSource, cache: LyricCache()).fetch(testTrack)
+expect(wordSourceResult?.lines.first?.time, 2, "NetEase prefers word timing over stale line timestamps")
+expect(wordSourceResult?.lines.first?.words.map(\.time), [2, 2.5], "NetEase word timing reaches the existing graph model")
+expect(wordSourceResult?.timingRevision, 2, "word-capable provider response records cache format revision")
+let upgradeTimingCache = LyricCache()
+await upgradeTimingCache.put(testTrack, LyricDocument(lines: [.init(time: 0, text: "作曲 : Name"), .init(time: 10, text: "Actual words")], source: .netease))
+expect(await upgradeTimingCache.read(testTrack, allowPlain: true) == nil, true, "old NetEase line cache refreshes for supplied word timing")
+expect(await upgradeTimingCache.read(testTrack, allowPlain: true, allowExpired: true)?.lines.first?.text, "", "offline NetEase cache recovery also removes credits")
+
+let isolatedPath = cacheFolder.appendingPathComponent("isolated-v3.json")
+let oldAppPath = cacheFolder.appendingPathComponent("old-app-v2.json")
+let isolated = LyricCache(storageURL: isolatedPath)
+await isolated.put(testTrack, LyricDocument(lines: [.init(time: 1, text: "Modern cached song")], source: .lrclib))
+try Data("[]".utf8).write(to: oldAppPath)
+expect(await LyricCache(storageURL: isolatedPath, legacyStorageURL: oldAppPath).read(testTrack, allowPlain: true)?.timed,
+    true, "an old app clearing its cache cannot erase isolated timed lyrics")
+var unknownProviderEntry = oldTimedEntry
+unknownProviderEntry["matchingRevision"] = 5
+unknownProviderEntry["document"] = ["source": "future-provider", "lines": [], "instrumental": false]
+var validProviderEntry = oldTimedEntry
+validProviderEntry["matchingRevision"] = 5
+try JSONSerialization.data(withJSONObject: [unknownProviderEntry, validProviderEntry]).write(to: oldAppPath)
+expect(await LyricCache(storageURL: nil, legacyStorageURL: oldAppPath).read(testTrack, allowPlain: true)?.timed,
+    true, "one unknown provider cannot invalidate other saved lyric entries")
+
+let punctuationLine = LyricLine(time: 0, text: "( Original words )", end: 4, words: [
+    .init(text: "(", time: 0, end: 0.2), .init(text: "Original", time: 0.2, end: 1.5),
+    .init(text: "words", time: 1.5, end: 3.5), .init(text: ")", time: 3.5, end: 4)])
+let punctuationPage = LyricWordPage.resolve(line: punctuationLine, at: 1.6, nextLineTime: 4, estimated: false)
+expect(punctuationPage.words, ["Original", "words"], "bracket-only tokens never become separate graph nodes")
+expect(punctuationPage.activeIndex, 1, "word emphasis stays aligned after punctuation nodes are removed")
+expect(LyricWordPage.resolve(line: punctuationLine, at: 3.7, nextLineTime: 4, estimated: false).activeIndex,
+    nil, "a closing bracket never highlights a different lyric word")
+let wrappedLine = LyricLine(time: 0, text: "(don't) [stop] ...", end: 4)
+expect(LyricWordPage.resolve(line: wrappedLine, at: 1, nextLineTime: 4, estimated: true).words,
+    ["don't", "stop"], "wrapping brackets disappear but contractions and lyric words remain")
+let deliveryCache = LyricCache()
+await deliveryCache.put(testTrack, LyricDocument(lines: [.init(time: 1, text: "Saved")], source: .lrclib))
+expect(await deliveryCache.read(testTrack, allowPlain: true)?.retrievedFromCache, true,
+    "a saved result is explicitly identified as cached")
+let directDelivery = FixtureTransport([response(timedRecord)])
+let freshDelivery = try await LyricsResolver(transport: directDelivery, cache: deliveryCache).fetch(testTrack, bypassCache: true)
+expect(freshDelivery?.retrievedFromCache, false, "fresh library lookup remains distinct from saved results")
+expect(await directDelivery.calls().count, 1, "live library lookup contacts provider even when a timed cache exists")
+expect(await deliveryCache.read(testTrack, allowPlain: true)?.removingCredits().retrievedFromCache,
+    true, "display cleanup preserves the delivery provenance")
+
+expect(LyricScene.isVocal(.init(time: 0, text: "( ) [ ] ...")), false,
+    "punctuation-only intervals remain instrumental instead of an empty lyric graph")
+expect(LyricScene.isVocal(.init(time: 0, text: "(Ah-ha)")), true,
+    "parenthesized sung vocals are not discarded")
+
+var providerBackoff = LyricProviderBackoff()
+let healthNow = Date(timeIntervalSince1970: 1000)
+providerBackoff.record(host: "lrclib.net", response: response("", status: 502), now: healthNow)
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow.addingTimeInterval(29))?.status,
+    502, "gateway outage skips repeated requests across the provider's endpoints")
+expect(providerBackoff.blockedResponse(host: "music.163.com", now: healthNow) == nil,
+    true, "LRCLIB cooldown never blocks independent synchronized providers")
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow.addingTimeInterval(30)) == nil,
+    true, "LRCLIB is probed again after cooldown")
+providerBackoff.record(host: "lrclib.net", response: response("", status: 502), now: healthNow.addingTimeInterval(30))
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow.addingTimeInterval(89))?.status,
+    502, "repeated provider failures back off instead of hammering the service")
+providerBackoff.record(host: "lrclib.net", response: response("{}"), now: healthNow.addingTimeInterval(90))
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow.addingTimeInterval(91)) == nil,
+    true, "provider recovery immediately clears the cooldown")
+providerBackoff.record(host: "lrclib.net", response: response("", status: 429), retryAfter: "180", now: healthNow)
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow.addingTimeInterval(179))?.status,
+    429, "provider Retry-After seconds are honored")
+providerBackoff.record(host: "example.org", response: response("", status: 503), retryAfter: "Thu, 01 Jan 1970 00:20:00 GMT", now: healthNow)
+expect(providerBackoff.blockedResponse(host: "example.org", now: healthNow.addingTimeInterval(199))?.status,
+    503, "provider Retry-After HTTP dates are honored")
+providerBackoff.record(host: "lrclib.net", response: response("", status: 404), now: healthNow)
+expect(providerBackoff.blockedResponse(host: "lrclib.net", now: healthNow) == nil,
+    true, "a missing song does not count as a provider outage")
+
+
+// Keepsakes preserve exact recording metadata and selected lyric order.
+let keepsakeTrack = Track(title: "a|b", artist: "c", album: "Moon", duration: 201)
+let otherKeepsakeTrack = Track(title: "a", artist: "b|c", album: "Moon", duration: 201)
+expect(RecordingIdentity.key(keepsakeTrack) != RecordingIdentity.key(otherKeepsakeTrack), true, "recording identity escapes separators")
+expect(SavedLyricExcerpt.text(from: ["one", "two", "three"], selected: [2, 0]), "one\nthree", "card preserves lyric order")
+expect(SavedLyricExcerpt.text(from: ["   "], selected: [0]), nil, "empty excerpt rejected")
+expect(SavedLyricExcerpt.text(from: [String(repeating: "a", count: 281)], selected: [0]), nil, "oversized excerpt rejected")
+expect(SavedLyricExcerpt.text(from: Array(repeating: "line", count: 7), selected: Set(0..<7)), nil, "too many card lines rejected")
+let keepsakeFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+let keepsakeStore = SongKeepsakeStore(folder: keepsakeFolder)
+let keepsakeAppearance = SongAppearance(tint: "Rose", opacity: 0.5, marker: "Emoji", emoji: "🌙", clock: false, motion: false, estimatedWords: true, wallpaper: Data([1, 2, 3]))
+try keepsakeStore.write(keepsakeAppearance, name: "scene")
+expect(keepsakeStore.read(SongAppearance.self, name: "scene"), keepsakeAppearance, "scene roundtrip preserves independent wallpaper bytes")
+let savedExcerpt = SavedLyricExcerpt(track: keepsakeTrack, text: "夜空 ✨", color: .fallback)
+try keepsakeStore.write([savedExcerpt], name: "excerpts")
+expect(keepsakeStore.read([SavedLyricExcerpt].self, name: "excerpts"), [savedExcerpt], "saved excerpt preserves metadata color and unicode")
+try keepsakeStore.remove(name: "scene")
+expect(keepsakeStore.read(SongAppearance.self, name: "scene"), nil, "scene removal persists")
+try FileManager.default.removeItem(at: keepsakeFolder)
 
 print("ALL \(checks) CHECKS PASSED")

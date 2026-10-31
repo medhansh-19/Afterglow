@@ -37,6 +37,9 @@ struct DisplayView: View {
         timeline in
         let position = model.position()
         ZStack {
+          if !model.connected && !desktop.isQuiet {
+            WelcomeView(error: model.error, connect: model.connect, demo: model.demo)
+          } else {
           WallpaperBackground(image: appearance.image, opacity: backgroundOpacity).ignoresSafeArea()
           GlowFrame(
             tint: tint, active: model.playing && desktop.isVisible,
@@ -59,11 +62,6 @@ struct DisplayView: View {
               Text("Choose a music player from the Afterglow menu.")
                 .font(.system(size: 14, weight: .light, design: .rounded))
                 .foregroundStyle(Theme.secondary)
-            } else {
-              ScrollView {
-                onboarding.frame(maxWidth: .infinity)
-              }
-              .scrollBounceBehavior(.basedOnSize)
             }
             Spacer(minLength: 8)
             footer(position: position, width: geometry.size.width)
@@ -71,6 +69,7 @@ struct DisplayView: View {
           .padding(.horizontal, max(32, geometry.size.width * 0.028))
           .padding(.top, desktop.isQuiet ? 54 : 26)
           .padding(.bottom, 35)
+          }
         }
       }
     }
@@ -95,6 +94,7 @@ struct DisplayView: View {
         panels.presented = nil
       }
     }
+    .onChange(of: model.track, initial: true) { _, track in appearance.activateScene(for: track) }
     .onChange(of: model.source) { _, _ in
       beats.stop()
       showTiming = false
@@ -108,6 +108,7 @@ struct DisplayView: View {
       case .library: libraryView
       case .timing: timingControls
       case .beats: beatControls
+      case .cards: LyricCardsView(model: model, presented: $panels.presented)
       case .wallpaper: WallpaperSettings(appearance: appearance, tint: tint, presented: $panels.presented)
       }
     }
@@ -133,14 +134,21 @@ struct DisplayView: View {
   }
 
   private var missingLyricStatus: some View {
-    Text(model.track == nil ? "Waiting for music…"
-      : model.loading ? "Finding lyrics…" : "Lyrics not found")
-      .font(.system(size: 12, weight: .medium))
-      .foregroundStyle(Theme.secondary)
-      .padding(.horizontal, 14).padding(.vertical, 8)
-      .background(Theme.panel.opacity(0.9), in: Capsule())
+    let hasText = model.lyricDocument?.plainText?.isEmpty == false
+    let title = model.track == nil ? "Waiting for music"
+      : model.loading ? "Finding lyrics"
+      : hasText ? "Synced lyrics unavailable" : "Lyrics unavailable"
+    let detail = model.track == nil ? "Start a song in your player."
+      : desktop.isQuiet ? "Lyric options are in the Afterglow menu."
+      : model.loading ? "Checking your lyric sources…"
+      : hasText ? "Untimed text is in your library."
+      : model.message.localizedCaseInsensitiveContains("retrying automatically")
+        ? "Trying again in the background."
+        : "Retry or choose a lyric file."
+    return LyricLookupStatus(title: title, detail: detail, diagnostic: model.message,
+      interactive: model.track != nil && !desktop.isQuiet, loading: model.loading,
+      retry: model.retryLyrics, openLibrary: { panels.presented = .library })
       .padding(.horizontal, 20)
-      .help(model.message)
   }
 
   private func header(date: Date) -> some View {
@@ -207,41 +215,6 @@ struct DisplayView: View {
     .frame(height: 52)
   }
 
-  private var onboarding: some View {
-    VStack(spacing: 24) {
-      Image(systemName: "point.3.connected.trianglepath.dotted")
-        .font(.system(size: 50, weight: .ultraLight)).foregroundStyle(tint)
-        .shadow(color: tint.opacity(0.5), radius: 25)
-        .accessibilityHidden(true)
-      VStack(spacing: 12) {
-        Text("A constellation\nfor every song.")
-          .font(.system(size: 48, weight: .light, design: .rounded))
-          .multilineTextAlignment(.center)
-        Text("Your music. A quiet screen. Words that find each other.")
-          .font(.system(size: 14)).foregroundStyle(Theme.secondary)
-      }
-      HStack(spacing: 12) {
-        Button("Connect Spotify") { model.connect(.spotify) }
-        Button("Connect Apple Music") { model.connect(.music) }
-      }
-      .buttonStyle(GlowButtonStyle(tint: tint))
-      Button("Try the demo", systemImage: "play.fill") { model.demo() }
-        .buttonStyle(.plain).foregroundStyle(tint)
-        .help("Preview with original sample words, without connecting a player")
-      VStack(spacing: 5) {
-        Text("macOS will ask to read your selected player.")
-        Text("Track details go to LRCLIB and optionally Karalyr; lyrics.ovh can provide untimed text.")
-      }
-      .font(.system(size: 11)).foregroundStyle(Theme.secondary).multilineTextAlignment(.center)
-      if let error = model.error {
-        Text(error).font(.system(size: 12)).foregroundStyle(Theme.amber)
-          .multilineTextAlignment(.center).frame(maxWidth: 520)
-          .accessibilityLabel("Connection issue. \(error)")
-      }
-    }
-    .padding(.vertical, 18)
-  }
-
   private func performance(position: Double, size: CGSize) -> some View {
     VStack(spacing: 16) {
       if !model.lines.isEmpty {
@@ -278,7 +251,8 @@ struct DisplayView: View {
         VStack(spacing: 7) {
           Text(track.title).font(.system(size: 15, weight: .medium)).foregroundStyle(tint)
             .lineLimit(1)
-          Text(track.artist).font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
+          Text(track.artist)
+            .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
           HStack(spacing: 10) {
             Text(time(position)).frame(width: 36, alignment: .trailing)
             GeometryReader { g in
@@ -505,6 +479,9 @@ struct DisplayView: View {
         Button("Done") { panels.presented = nil }.keyboardShortcut(.defaultAction)
       }
       if let document = model.lyricDocument {
+        let delivery = document.source == .local ? "Imported lyric file"
+          : document.retrievedFromCache == true ? "Saved copy · used while checking online sources" : "Fetched from online library"
+        Text(delivery).font(.caption).foregroundStyle(.secondary)
         HStack {
           Text(
             "\(document.source.name) · \(document.timed ? model.timingDescription : "Untimed text")"
@@ -516,6 +493,9 @@ struct DisplayView: View {
           if document.source == .karalyr {
             Link("Karalyr", destination: URL(string: "https://karalyr.com")!)
           }
+          if document.source == .netease {
+            Link("NetEase", destination: URL(string: "https://music.163.com")!)
+          }
           if document.source == .lrclib {
             Link("LRCLIB", destination: URL(string: "https://lrclib.net")!)
           }
@@ -526,10 +506,10 @@ struct DisplayView: View {
         Text("Automatically using the closest recording (\(String(format: "%+.1f", duration - target.duration)) s). Timing may differ slightly; adjust Timing or choose another version below.")
           .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
-      Toggle("Try Karalyr when LRCLIB has no synced lyrics", isOn: $timedFallback)
+      Toggle("Try Karalyr and NetEase for synced lyrics", isOn: $timedFallback)
       Toggle("Try lyrics.ovh when no lyric text is found", isOn: $plainFallback)
       Text(
-        "LRCLIB receives title, artist, album and duration. Karalyr receives title, artist and duration when synced lyrics are missing. lyrics.ovh receives only title and artist; its untimed text appears only in this reader."
+        "LRCLIB receives title, artist, album and duration. Karalyr receives title, artist and duration when synced lyrics are missing. NetEase receives title and artist, then a matched recording ID. lyrics.ovh receives only title and artist; its untimed text appears only in this reader."
       )
       .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       HStack {
@@ -549,6 +529,7 @@ struct DisplayView: View {
       )
       .font(.caption).foregroundStyle(.secondary)
       if let error = model.libraryError { Text(error).foregroundStyle(Theme.amber).font(.caption) }
+      Button("Create a Lyric Card…") { panels.presented = .cards }.disabled(model.track == nil)
       Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {

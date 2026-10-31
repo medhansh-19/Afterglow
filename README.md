@@ -17,7 +17,7 @@ Afterglow started as a lyrics app. Somewhere along the way, it became a live wal
 - Connect Spotify or Apple Music.
 - View lyrics in a window, Focus Mode or as a desktop wallpaper.
 - Match colors to album artwork and adjust lyric timing.
-- Use LRCLIB, with optional Karalyr and lyrics.ovh backups, or import your own lyrics.
+- Use LRCLIB, with optional Karalyr, NetEase and lyrics.ovh backups, or import your own lyrics.
 
 ## A lot of this started out loud
 
@@ -37,6 +37,10 @@ open /Applications/Afterglow.app
 
 The installer requires `/Applications/Afterglow.app` to be absent. To build a ZIP without installing, run `zsh build.sh`; the result is `build/Afterglow.zip`. Builds are locally signed, not notarized.
 
+Local builds reuse a private signing certificate stored in `~/Library/Application Support/Afterglow/Signing` so macOS permissions survive rebuilds. The first build creates a local keychain and trusts its certificate for code signing only; macOS may ask you to authenticate. Keep that folder private and preserve it across updates. Set `AFTERGLOW_SIGNING_IDENTITY` to use your own signing certificate instead.
+
+When moving from an older ad hoc build, remove the old Afterglow entry from Screen & System Audio Recording, add `/Applications/Afterglow.app`, enable access, and reopen Afterglow once.
+
 Start music, open Afterglow and connect your player. Grant Automation permission when prompted. Open controls with **⌘K**, toggle Focus with **⇧⌘F**, Desktop view with **⇧⌘D**, or Beat Sync with **⇧⌘B**. Global shortcuts can be disabled in Controls → Keyboard Shortcuts.
 
 ## Lyrics & privacy
@@ -50,3 +54,9 @@ Beat sync is optional and requires Screen & System Audio Recording permission. S
 ## Rights
 
 All rights reserved. No public permission to copy, modify or redistribute Afterglow is granted. See [LICENSE](LICENSE). Dependencies retain their [own licenses](THIRD_PARTY_NOTICES.md).
+
+## Scenes and lyric cards
+
+Open **Appearance & Wallpaper** from the Afterglow menu, choose your backdrop, glow, marker and visual preferences, then **Save Scene for This Song**. Saved scenes return automatically for that recording; songs without a scene use your default appearance. Use **Update Scene** to keep later changes or **Remove Scene** to return to defaults. Scenes and independent wallpaper copies stay on this Mac.
+
+Open **Lyric Cards** from the menu (or **Create a Lyric Card** in the library). Select up to six lines and 280 characters, then save the excerpt, **Export PNG** or **Copy Image**. Cards use the song’s album accent, falling back to Rose when unavailable, and export at 1080 × 1350. Saved excerpts retain their original song and colors even after playback changes.

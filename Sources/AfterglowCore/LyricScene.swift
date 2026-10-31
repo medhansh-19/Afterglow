@@ -6,7 +6,7 @@ public struct LyricScene: Sendable {
     public let waveOpacity: Double
     public static func isVocal(_ line: LyricLine) -> Bool {
         let value = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.isEmpty { return false }
+        if !value.contains(where: { $0.isLetter || $0.isNumber }) { return false }
         if value.allSatisfy({ "♪♫♬♩♭♮♯….- ".contains($0) }) { return false }
         return !["[instrumental]", "(instrumental)", "[music]", "(music)", "[interlude]", "(interlude)"].contains(value.lowercased())
     }
@@ -19,6 +19,8 @@ public struct LyricScene: Sendable {
         let end = min(next, line.end ?? next)
         guard isVocal(line), line.words.isEmpty, end - line.time > 30 else { return end }
         let count = line.text.split(whereSeparator: \.isWhitespace).count
+        // Dense verses need their full supplied interval so later word pages can appear.
+        guard count <= 24 else { return end }
         return min(end, line.time + min(16, max(8, Double(count) * 0.8)))
     }
 

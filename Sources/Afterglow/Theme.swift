@@ -10,6 +10,11 @@ enum Theme {
     static let panel = Color(red: 0.09, green: 0.08, blue: 0.10) // #17141A
     static let radius = 18.0
     static let controlHeight = 38.0
+
+    // Welcome stays monochrome: a black sky and quiet, readable controls.
+    static let welcomeBackground = Color.black // #000000
+    static let welcomeText = Color(white: 0.92) // #EBEBEB
+    static let welcomeSecondary = Color(white: 0.56) // #8F8F8F
 }
 
 enum Tint: String, CaseIterable, Identifiable {

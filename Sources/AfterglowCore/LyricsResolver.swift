@@ -1,9 +1,9 @@
 import Foundation
 
 public enum LyricSource: String, Codable, Sendable {
-    case lrclib, karalyr, lyricsOVH, local
+    case lrclib, karalyr, netease, lyricsOVH, local
     public var name: String {
-        switch self { case .lrclib: "LRCLIB"; case .karalyr: "Karalyr"; case .lyricsOVH: "lyrics.ovh"; case .local: "Your imported lyrics" }
+        switch self { case .lrclib: "LRCLIB"; case .karalyr: "Karalyr"; case .netease: "NetEase"; case .lyricsOVH: "lyrics.ovh"; case .local: "Your imported lyrics" }
     }
 }
 
@@ -29,17 +29,32 @@ public struct LyricDocument: Codable, Sendable {
     public let manualMatch: Bool?
     public let automaticMatch: Bool?
     public let matchedDuration: Double?
+    public let timingRevision: Int?
+    public let retrievedFromCache: Bool?
     public init(lines: [LyricLine] = [], plainText: String? = nil, source: LyricSource, instrumental: Bool = false,
                 alternatives: [LyricAlternative]? = nil, manualMatch: Bool = false,
-                automaticMatch: Bool = false, matchedDuration: Double? = nil) {
+                automaticMatch: Bool = false, matchedDuration: Double? = nil, timingRevision: Int? = nil, retrievedFromCache: Bool = false) {
         self.lines = lines; self.plainText = plainText; self.source = source; self.instrumental = instrumental
         self.alternatives = alternatives; self.manualMatch = manualMatch
         self.automaticMatch = automaticMatch; self.matchedDuration = matchedDuration
+        self.timingRevision = timingRevision
+        self.retrievedFromCache = retrievedFromCache
     }
     public func including(_ alternatives: [LyricAlternative]) -> LyricDocument {
         .init(lines: lines, plainText: plainText, source: source, instrumental: instrumental,
               alternatives: alternatives, manualMatch: manualMatch == true,
-              automaticMatch: automaticMatch == true, matchedDuration: matchedDuration)
+              automaticMatch: automaticMatch == true, matchedDuration: matchedDuration, timingRevision: timingRevision, retrievedFromCache: retrievedFromCache == true)
+    }
+    public func markingCached() -> LyricDocument {
+        .init(lines: lines, plainText: plainText, source: source, instrumental: instrumental,
+            alternatives: alternatives, manualMatch: manualMatch == true, automaticMatch: automaticMatch == true,
+            matchedDuration: matchedDuration, timingRevision: timingRevision, retrievedFromCache: true)
+    }
+    public func removingCredits() -> LyricDocument {
+        guard source != .local else { return self }
+        return .init(lines: LyricCredits.clean(lines), plainText: plainText, source: source,
+            instrumental: instrumental, alternatives: alternatives, manualMatch: manualMatch == true,
+            automaticMatch: automaticMatch == true, matchedDuration: matchedDuration, timingRevision: timingRevision, retrievedFromCache: retrievedFromCache == true)
     }
     public var timed: Bool { lines.contains { !$0.text.isEmpty } }
 }
@@ -76,14 +91,14 @@ public enum RecordingMatch {
         return String(lower.map { $0.isLetter || $0.isNumber ? $0 : " " }).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
     /// Albums sometimes disclose a different performance even when the title omits it.
-    public static func compatibleVersion(_ track: Track, candidateAlbum: String) -> Bool {
+    public static func compatibleVersion(_ track: Track, candidateAlbum: String, candidateTitle: String? = nil) -> Bool {
         let recording = normalize(track.title + " " + track.album)
-        let candidate = normalize(candidateAlbum)
+        let candidate = normalize((candidateTitle ?? track.title) + " " + candidateAlbum)
         let markers = ["live", "remix", "acoustic", "instrumental", "karaoke", "stripped", "sped up", "slowed"]
         func contains(_ value: String, _ marker: String) -> Bool {
             (" " + value + " ").contains(" " + marker + " ")
         }
-        return markers.allSatisfy { !contains(candidate, $0) || contains(recording, $0) }
+        return markers.allSatisfy { contains(candidate, $0) == contains(recording, $0) }
     }
 
     public static func accepts(_ track: Track, title candidate: String, artist candidateArtist: String, duration: Double) -> Bool {
@@ -113,48 +128,88 @@ public struct URLSessionLyricTransport: LyricTransport {
         configuration.timeoutIntervalForResource = 8
         return URLSession(configuration: configuration, delegate: LyricRedirects(), delegateQueue: nil)
     }()
+    public static func allows(_ url: URL) -> Bool {
+        url.scheme == "https" && url.user == nil && url.password == nil
+            && ["lrclib.net", "karalyr.com", "www.karalyr.com", "music.163.com", "api.lyrics.ovh"].contains(url.host ?? "")
+    }
+    public static func allowsRedirect(from original: URL?, to destination: URL?) -> Bool {
+        guard let original, let destination, allows(original), allows(destination) else { return false }
+        if original.host == destination.host { return true }
+        // Karalyr redirects its apex domain to its canonical www API host.
+        return original.host == "karalyr.com" && destination.host == "www.karalyr.com"
+    }
     public func get(_ url: URL) async throws -> LyricHTTPResponse {
-        guard url.scheme == "https", ["lrclib.net", "karalyr.com", "api.lyrics.ovh"].contains(url.host ?? "") else { throw URLError(.unsupportedURL) }
+        guard Self.allows(url) else { throw URLError(.unsupportedURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = url.path == "/api/get" ? 3 : 7
-        request.setValue("Afterglow/3.0.6 (personal macOS music display)", forHTTPHeaderField: "User-Agent")
-        if url.host == "karalyr.com" { request.setValue("afterglow/3.0.6", forHTTPHeaderField: "X-Karalyr-Client") }
-        let (data, response) = try await Self.session.data(for: request)
+        request.setValue("Afterglow/3.0.7 (https://github.com/medhansh-19/Afterglow)", forHTTPHeaderField: "User-Agent")
+        if url.host == "karalyr.com" || url.host == "www.karalyr.com" { request.setValue("afterglow/3.0.7", forHTTPHeaderField: "X-Karalyr-Client") }
+        let host = url.host ?? ""
         try Task.checkCancellation()
-        guard data.count <= 2_000_000, let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        return .init(data: data, status: response.statusCode)
+        if let blocked = await LyricProviderHealth.shared.blockedResponse(host: host) {
+            return blocked
+        }
+        do {
+            let (data, response) = try await Self.session.data(for: request)
+            try Task.checkCancellation()
+            guard data.count <= 2_000_000, let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            let result = LyricHTTPResponse(data: data, status: response.statusCode)
+            await LyricProviderHealth.shared.record(host: host, response: result,
+                retryAfter: response.value(forHTTPHeaderField: "Retry-After"))
+            return result
+        } catch {
+            if !(error is CancellationError), (error as? URLError)?.code != .cancelled, !Task.isCancelled {
+                await LyricProviderHealth.shared.record(host: host,
+                    response: .init(data: Data(), status: 503))
+            }
+            throw error
+        }
     }
 }
 
 private final class LyricRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(request.url?.scheme == "https" && request.url?.host == task.originalRequest?.url?.host ? request : nil)
+        completionHandler(URLSessionLyricTransport.allowsRedirect(from: task.originalRequest?.url, to: request.url) ? request : nil)
     }
 }
 
 public actor LyricCache {
-    public static let shared = LyricCache(storageURL: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-        .appendingPathComponent("Afterglow/Lyrics-v2.json"))
+    // Older releases cannot decode the newer provider/word-timing payloads. Give
+    // them a different file so launching an archived app cannot erase this cache.
+    private static let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Afterglow")
+    public static let shared = LyricCache(storageURL: folder?.appendingPathComponent("Lyrics-v3.json"),
+        legacyStorageURL: folder?.appendingPathComponent("Lyrics-v2.json"))
     private struct Entry: Codable { let track: Track; let document: LyricDocument; let saved: Date; var accessed: Date; let matchingRevision: Int? }
     private var entries: [Track: Entry] = [:]
     private var missing: [Track: Date] = [:]
     private let storageURL: URL?
-    public init(storageURL: URL? = nil) {
+    public init(storageURL: URL? = nil, legacyStorageURL: URL? = nil) {
         self.storageURL = storageURL
-        if let storageURL, let size = try? storageURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-           size <= 10_000_000, let data = try? Data(contentsOf: storageURL),
-           let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            for entry in decoded.suffix(64) { entries[entry.track] = entry }
+        // Import old data first; the isolated cache always owns newer records.
+        for path in [legacyStorageURL, storageURL].compactMap({ $0 }) {
+            guard let size = try? path.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                size <= 10_000_000, let data = try? Data(contentsOf: path),
+                let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { continue }
+            // A future/unknown provider must not make every other saved song vanish.
+            for row in rows.suffix(64) {
+                guard let encoded = try? JSONSerialization.data(withJSONObject: row),
+                    let entry = try? JSONDecoder().decode(Entry.self, from: encoded) else { continue }
+                entries[entry.track] = entry
+            }
         }
     }
-    public func read(_ track: Track, allowPlain: Bool, allowTimedFallback: Bool = true) -> LyricDocument? {
-        guard var entry = entries[track], entry.document.timed || entry.matchingRevision == 4,
-              Date().timeIntervalSince(entry.saved) < (entry.document.timed && entry.document.automaticMatch != true ? 30 * 86400 : 600),
+    public func read(_ track: Track, allowPlain: Bool, allowTimedFallback: Bool = true, allowExpired: Bool = false) -> LyricDocument? {
+        guard var entry = entries[track],
+              entry.matchingRevision == 5 || (allowExpired && entry.document.timed
+                && track.duration > 0 && entry.document.lines.allSatisfy { $0.time >= 0 && $0.time <= max(track.duration, entry.document.matchedDuration ?? 0) + min(10, track.duration * 0.05) }),
+              Date().timeIntervalSince(entry.saved) < (allowExpired ? 90 * 86400 : (entry.document.timed && entry.document.automaticMatch != true ? 30 * 86400 : 600)),
+              entry.document.source != .netease || entry.document.timingRevision == 2 || allowExpired,
               allowPlain || entry.document.source != .lyricsOVH,
-              allowTimedFallback || entry.document.source != .karalyr else { return nil }
+              allowTimedFallback || ![LyricSource.karalyr, .netease].contains(entry.document.source) else { return nil }
         entry.accessed = Date(); entries[track] = entry
-        return entry.document
+        return entry.document.removingCredits().markingCached()
     }
     public func isMissing(_ track: Track) -> Bool {
         guard let date = missing[track] else { return false }
@@ -166,7 +221,7 @@ public actor LyricCache {
     }
     public func put(_ track: Track, _ document: LyricDocument) {
         missing[track] = nil
-        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 4)
+        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 5)
         while entries.count > 64 { evictOldest() }
         persist()
     }
@@ -212,14 +267,19 @@ public struct LyricsResolver: Sendable {
         func matches(_ track: Track) -> Bool {
             guard let trackName, let artistName, let duration else { return false }
             return RecordingMatch.accepts(track, title: trackName, artist: artistName, duration: duration)
+                && RecordingMatch.compatibleVersion(track, candidateAlbum: albumName ?? "", candidateTitle: trackName)
         }
     }
 
     public func fetch(_ track: Track, allowPlainFallback: Bool = true, allowTimedFallback: Bool = true, bypassCache: Bool = false) async throws -> LyricDocument? {
         try Task.checkCancellation()
         if !bypassCache, await cache.isMissing(track), allowPlainFallback && allowTimedFallback { return nil }
-        if !bypassCache, let cached = await cache.read(track, allowPlain: allowPlainFallback, allowTimedFallback: allowTimedFallback) { return cached }
         var plain: LyricDocument?
+        if !bypassCache, let cached = await cache.read(track, allowPlain: allowPlainFallback, allowTimedFallback: allowTimedFallback) {
+            if cached.timed || cached.instrumental || !allowTimedFallback { return cached }
+            // An untimed cache hit must not suppress a newly available synchronized backup.
+            plain = cached
+        }
         var alternatives: [LyricAlternative] = []
         var hadFailure = false
         var rateLimited = false
@@ -299,7 +359,7 @@ public struct LyricsResolver: Sendable {
         if allowTimedFallback {
             var fallbackURLs = Set<URL>()
             for title in [track.title, RecordingMatch.queryTitle(track.title)] {
-                let url = endpoint("/api/get", track: track, title: title, album: nil, host: "karalyr.com")
+                let url = endpoint("/api/get", track: track, title: title, album: nil, host: "www.karalyr.com")
                 guard fallbackURLs.insert(url).inserted else { continue }
                 do {
                     let response = try await transport.get(url)
@@ -317,10 +377,18 @@ public struct LyricsResolver: Sendable {
                 } catch { try propagateCancellation(error); hadFailure = true; break }
             }
         }
+        if allowTimedFallback {
+            do {
+                if let document = try await NetEaseLyrics.fetch(track, transport: transport) {
+                    await cache.put(track, document)
+                    return document
+                }
+            } catch { try propagateCancellation(error); hadFailure = true }
+        }
         if let closest = alternatives.first(where: { alternative in
             let difference = abs(alternative.duration - track.duration)
             return track.duration > 0 && difference <= min(10, track.duration * 0.05)
-                && RecordingMatch.compatibleVersion(track, candidateAlbum: alternative.album)
+                && RecordingMatch.compatibleVersion(track, candidateAlbum: alternative.album, candidateTitle: alternative.title)
         }) {
             let result = LyricDocument(lines: closest.lines, plainText: closest.plainText,
                 source: .lrclib, alternatives: alternatives, automaticMatch: true,
@@ -328,6 +396,10 @@ public struct LyricsResolver: Sendable {
             await cache.put(track, result)
             return result
         }
+        // Migration must not strand previously working timed lyrics during an outage.
+        // Fresh results still pass the stricter recording/version checks above.
+        if hadFailure, let saved = await cache.read(track, allowPlain: allowPlainFallback,
+            allowTimedFallback: allowTimedFallback, allowExpired: true), saved.timed { return saved }
         if let plain { let result = plain.including(alternatives); await cache.put(track, result); return result }
         if allowPlainFallback {
             do {
@@ -352,7 +424,13 @@ public struct LyricsResolver: Sendable {
             let result = LyricDocument(source: .lrclib, alternatives: alternatives)
             await cache.put(track, result); return result
         }
-        if hadFailure { throw URLError(.resourceUnavailable) }
+        if hadFailure {
+            // A provider outage must not discard lyrics already saved for this exact recording.
+            // Keep source privacy settings and matching-revision validation in force.
+            if let saved = await cache.read(track, allowPlain: allowPlainFallback,
+                allowTimedFallback: allowTimedFallback, allowExpired: true) { return saved }
+            throw URLError(.resourceUnavailable)
+        }
         if allowPlainFallback && allowTimedFallback { await cache.recordMissing(track) }
         return nil
     }
