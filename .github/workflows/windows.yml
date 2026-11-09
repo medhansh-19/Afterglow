@@ -81,7 +81,7 @@ jobs:
       - name: Build Windows installer
         working-directory: linux
         run: |
-          npm run tauri -- build --config ../../windows/tauri.windows.conf.json
+          npm run tauri -- build --config ../windows/tauri.windows.conf.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install the preview and test the native application
         run: |

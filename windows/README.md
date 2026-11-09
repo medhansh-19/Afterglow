@@ -41,14 +41,14 @@ node --test windows/tests/*.test.js
 npm run build --prefix linux
 python linux/scripts/collect-notices.py
 Set-Location linux
-npm run tauri -- build --config ../../windows/tauri.windows.conf.json
+npm run tauri -- build --config ../windows/tauri.windows.conf.json
 ```
 
 The `linux/` directory contains the shared desktop frontend and Rust shell for both ports; the Windows config selects its native adapters and Windows installer. The setup executable is written under `linux/src-tauri/target/release/bundle/nsis/`. Development also needs the built sidecar:
 
 ```powershell
 Set-Location linux
-npm run tauri -- dev --config ../../windows/tauri.windows.conf.json
+npm run tauri -- dev --config ../windows/tauri.windows.conf.json
 ```
 
 Browser preview and macOS checks exercise portable logic only. Windows CI compiles the native adapters, runs Windows tests and packages the app. Real Spotify/Apple Music, capture isolation, Explorer recovery, sleep/wake and hardware power behavior remain separate acceptance tests. See [PLAN.md](PLAN.md) for architecture and official API sources.
