@@ -30,6 +30,7 @@ gtk-layer-shell = { version = "0.8", features = ["v0_6"] }
 x11rb = { version = "0.13", features = ["shape"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+tauri-plugin-updater = "=2.14.1"
 windows = { version = "0.61", features = ["Foundation", "Media_Control", "Storage_Streams", "Win32_Foundation", "Win32_System_Com", "Win32_System_WinRT", "Win32_System_Com_StructuredStorage", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_Power", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Console", "Win32_System_SystemInformation", "Win32_System_RemoteDesktop", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_Media_KernelStreaming", "Win32_Media_Multimedia", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader"] }
 windows-future = "0.2"
 windows-core = "0.61"

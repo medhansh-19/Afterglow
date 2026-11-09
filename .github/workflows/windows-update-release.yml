@@ -1,0 +1,42 @@
+name: Stage signed Windows update
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Windows preview workflow run on this exact commit
+        required: true
+      tag:
+        description: Immutable release tag (for example windows-v0.2.1)
+        required: true
+permissions:
+  contents: write
+  actions: read
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          node -e 'const r=require("./run.json"); if(r.conclusion!=="success" || r.head_sha!==process.env.GITHUB_SHA || r.path!==".github/workflows/windows.yml") throw Error("Require passing Windows workflow on this exact commit")'
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: staged
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Generate manifest and create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          VERSION=$(node -p 'require("./windows/tauri.windows.conf.json").version')
+          node windows/scripts/update-manifest.mjs staged/packages "$VERSION" "$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" staged/packages/*.exe staged/packages/*.sig staged/packages/windows-latest.json --draft --target "$GITHUB_SHA" --title "Afterglow $VERSION for Windows" --notes "Signed Windows update. Validate old-to-new installation and settings preservation before publishing or promoting the update feed."
