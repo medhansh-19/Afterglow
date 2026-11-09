@@ -27,7 +27,7 @@ mock = r'''(lyrics) => {
         case "ui_ready": return null;
         case "audio_streams": return [{index:101,name:"Spotify",binary:"Spotify.exe"},{index:202,name:"Other player",binary:"other.exe"}];
         case "audio_start": if (fixture.fail) throw Error("Audio unavailable. Refresh streams to reconnect."); return;
-        case "audio_stop": return;
+        case "audio_stop": if (fixture.delayStop) await new Promise(r=>setTimeout(r, 250)); return;
         case "client_error": return;
       }
       throw Error("Unexpected command: " + command);
@@ -72,6 +72,14 @@ with sync_playwright() as p:
     expect(page.locator('#play')).to_have_attribute('aria-label','Play'); assert count('audio_stop') > stops
     page.get_by_role('button',name='Play',exact=True).click()
     expect(page.locator('#beat-state')).to_contain_text('Beat sync ·'); assert count('audio_start') > starts
+    # A deliberately slow stop must finish before the replacement start.
+    page.evaluate('fixture.delayStop=true')
+    page.get_by_role('button',name='Pause',exact=True).click()
+    page.get_by_role('button',name='Play',exact=True).click()
+    page.wait_for_timeout(600)
+    assert page.evaluate('fixture.calls.filter(c=>["audio_start","audio_stop"].includes(c.command)).at(-1).command') == 'audio_start'
+    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·')
+    page.evaluate('fixture.delayStop=false')
     page.evaluate('fixture.title="Next track"'); page.wait_for_timeout(1400)
     expect(page.locator('#title')).to_have_text('Next track')
     assert page.evaluate('fixture.calls.filter(c=>c.command==="audio_start").at(-1).args.index')==101

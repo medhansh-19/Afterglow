@@ -63,6 +63,7 @@ let library = newLibrary(),
   captureActive = false,
   capturePending = false,
   captureGeneration = 0,
+  captureQueue = Promise.resolve(),
   focused = false,
   desktop = false,
   panelTab = "player",
@@ -392,12 +393,20 @@ async function transport(action, position) {
     report(err);
   }
 }
+function captureCommand(command, args = {}, generation = captureGeneration) {
+  captureQueue = captureQueue.catch(() => {}).then(() => {
+    // Skip superseded starts, but always finish a queued stop before the next start.
+    if (command === "audio_start" && generation !== captureGeneration) return;
+    return call(command, args);
+  });
+  return captureQueue;
+}
 async function stopCapture() {
   const generation = ++captureGeneration;
   captureActive = false;
   capturePending = false;
-  await call("audio_stop").catch(report);
-  if (generation === captureGeneration) audio = { level: 0, bands: [] };
+  audio = { level: 0, bands: [] };
+  await captureCommand("audio_stop", {}, generation).catch(report);
 }
 async function syncCapture() {
   const should =
@@ -414,7 +423,7 @@ async function syncCapture() {
   capturePending = true;
   const generation = ++captureGeneration;
   try {
-    await call("audio_start", { index: audioIndex });
+    await captureCommand("audio_start", { index: audioIndex }, generation);
     if (generation !== captureGeneration) return;
     captureActive = true;
     if (
@@ -1147,7 +1156,7 @@ if (native) {
     }
   });
   await listen("audio-frame", (event) => {
-    audio = event.payload;
+    if (captureActive || capturePending) audio = event.payload;
   });
   await listen("audio-ended", (event) => {
     captureActive = false;
