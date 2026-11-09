@@ -2,7 +2,7 @@ name: Windows installed preview
 on:
   push:
     branches: [codex/windows-app]
-    paths: [.github/workflows/windows-installed.yml]
+    paths: [.github/workflows/windows-installed.yml, windows/tests/native-smoke.ps1]
   workflow_dispatch:
     inputs:
       run_id:

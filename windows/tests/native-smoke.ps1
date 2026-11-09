@@ -58,6 +58,7 @@ try {
 
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
+  Add-Type -AssemblyName System.Windows.Forms
   Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -87,8 +88,10 @@ public static class AfterglowSmokeWindow {
   function Invoke-Button([string]$Name) {
     $script:button = $null
     Wait-Until { $script:button = Find-Button $Name; $null -ne $script:button } "Native accessible button is missing: $Name"
-    $pattern = $script:button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-    $pattern.Invoke()
+    $pattern = $null
+    if ($script:button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
+    elseif ($script:button.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$pattern)) { $pattern.DoDefaultAction() }
+    else { $script:button.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
   }
   $application = Start-Process -FilePath $AppPath -PassThru
   Wait-Until { $application.Refresh(); $application.MainWindowHandle -ne [IntPtr]::Zero } 'Afterglow native main window did not appear.'
