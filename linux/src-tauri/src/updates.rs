@@ -66,10 +66,10 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
         let result: Result<(), String> = tauri::async_runtime::block_on(async {
             let updater = app
                 .updater_builder()
-                .timeout(Duration::from_secs(120))
+                .timeout(Duration::from_secs(30))
                 .build()
                 .map_err(|e| e.to_string())?;
-            let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+            let Some(mut update) = updater.check().await.map_err(|e| e.to_string())? else {
                 if manual {
                     message(&app, "You have the latest version of Afterglow.");
                 }
@@ -87,6 +87,8 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
             if let Some(tray) = app.tray_by_id("main") {
                 let _ = tray.set_tooltip(Some("Afterglow — downloading update…"));
             }
+            // Installers bundle the Swift runtime and can be large on slow links.
+            update.timeout = Some(Duration::from_secs(30 * 60));
             let bytes = update
                 .download(|_, _| {}, || {})
                 .await
