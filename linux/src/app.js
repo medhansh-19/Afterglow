@@ -495,6 +495,8 @@ function updatePanelTint(color) {
   colors.forEach((value, i) => $("#panel").style.setProperty(`--glass-${i}`, value));
   $("#panel").style.setProperty("--lyric-color", color);
   if ($("#current-color")) $("#current-color").textContent = color.toUpperCase();
+  const album = effective().albumColor && !colorCollection(library, key)?.color || colorCollection(library, key)?.color === "album";
+  $("#panel-body").querySelectorAll("[data-lyric-color]").forEach((button) => button.setAttribute("aria-pressed", String(!album && button.dataset.lyricColor === color.toLowerCase())));
 }
 function renderPanel() {
   previewVisual?.dispose();
@@ -952,6 +954,14 @@ $("#panel-body").addEventListener("input", (event) => {
       } else {
         draft[name] = value;
         library.settings[name] = value;
+        if (name === "tint") {
+          draft.albumColor = false;
+          library.settings.albumColor = false;
+        }
+      }
+      if (name === "tint") {
+        const albumToggle = $("[data-setting='albumColor']");
+        if (albumToggle) albumToggle.checked = false;
       }
       persist();
     }

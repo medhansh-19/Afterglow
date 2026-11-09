@@ -37,6 +37,9 @@ test("notices expire, replace safely, pause on interaction and dismiss", () => {
   const advance = (ms) => { now += ms; for (const [id, task] of [...pending]) if (task.at <= now) { pending.delete(id); task.fn(); } };
   notifications.show("First error", 8000);
   advance(7000);
+  notifications.show("First error", 8000);
+  advance(1000); assert.equal(message, "", "Repeated polling errors must not extend the notice forever");
+  notifications.show("First error", 8000); assert.equal(message, "", "Repeated errors are suppressed briefly after dismissal");
   notifications.show("New error", 8000);
   advance(1000); assert.equal(message, "New error");
   notifications.pause(); advance(20000); assert.equal(message, "New error");

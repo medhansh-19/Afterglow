@@ -1,6 +1,6 @@
 // One cancellable timer owns all transient feedback; older messages cannot clear newer ones.
 export function createNotice({ show, schedule = setTimeout, cancel = clearTimeout, now = Date.now }) {
-  let timer, remaining = 0, deadline = 0, paused = false;
+  let timer, remaining = 0, deadline = 0, paused = false, lastText = "", repeatAfter = 0;
   function clear() {
     cancel(timer);
     remaining = 0;
@@ -16,6 +16,9 @@ export function createNotice({ show, schedule = setTimeout, cancel = clearTimeou
   }
   return {
     show(text, duration = 5000) {
+      if (text && text === lastText && now() < repeatAfter) return;
+      lastText = text;
+      repeatAfter = now() + 30000;
       cancel(timer);
       show(text);
       remaining = text ? duration : 0;
