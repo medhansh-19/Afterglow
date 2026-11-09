@@ -147,7 +147,13 @@ public static class AfterglowSmokeWindow {
   Invoke-Button 'Controls'
   Invoke-Button 'Appearance'
   $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
-  $reloaded = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sliderCondition)
+  $reloaded = $null
+  for ($attempt = 0; $attempt -lt 65 -and $null -eq $reloaded; $attempt++) {
+    Start-Sleep -Milliseconds 150
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
+    $reloaded = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sliderCondition)
+    if ($null -eq $reloaded) { [System.Windows.Forms.SendKeys]::SendWait('{TAB}') }
+  }
   if ($null -eq $reloaded) { throw 'Clock-size slider is missing after restart.' }
   $range = $reloaded.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
   if ($range.Current.Value -ne 120) { throw 'Restarted app did not reload clock size 120.' }
