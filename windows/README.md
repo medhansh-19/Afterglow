@@ -22,7 +22,7 @@ Local shortcuts use Ctrl+K for Controls and Ctrl+Shift+F/D/B/A/M for Focus, Desk
 
 ## Data and privacy
 
-Collections, scenes, imported lyrics, saved colors and private wallpaper copies are stored in `library.json` under the platform app-data directory for `local.medhansh.afterglow.windows`. The shared lyric cache is stored separately in Foundation's user-cache directory. Invalid saved libraries are preserved and editing is blocked for that session. Updates replace a library atomically.
+Collections, scenes, imported lyrics, saved colors and private wallpaper copies are stored in `library.json` under the platform app-data directory for `local.medhansh.afterglow.windows`. The shared lyric cache is stored separately in Foundation's user-cache directory. Invalid saved libraries are preserved and file writes are disabled for that session; temporary interface changes are not saved. Updates replace a library atomically.
 
 The selected song's metadata is sent to enabled lyric providers. Lyric services, album artwork and player brands remain subject to their owners' terms. The lyric service and artwork loader run locally; beat audio is never sent to a provider.
 
