@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import demo from "./demo.json";
 export const native = !!window.__TAURI_INTERNALS__;
+export const isWindows = /Windows/i.test(navigator.userAgent) || new URLSearchParams(location.search).get("platform") === "windows";
+export const platformName = isWindows ? "Windows" : "Linux";
 export async function call(command, args = {}) {
   if (native) return invoke(command, args);
   switch (command) {
@@ -23,7 +25,7 @@ export async function call(command, args = {}) {
       return [];
   }
   throw Error(
-    "This action needs the installed Linux app. The browser preview supports the silent demo and appearance controls.",
+    `This action needs the installed ${platformName} app. The browser preview supports the silent demo and appearance controls.`,
   );
 }
 export async function saveImage(canvas, name, copy = false) {

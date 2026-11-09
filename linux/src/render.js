@@ -102,19 +102,14 @@ export function renderer(canvas, graph, clock) {
       settings.emoji,
       Math.round(graph.clientWidth),
       settings.chorusMemory,
+      line.layoutSeed,
+      line.pageStart,
     ]);
     if (nextKey !== key) {
       key = nextKey;
       graph.innerHTML = line.words.length
         ? graphSvgMarkup(line.words, {
-            arrangementSeed: settings.chorusMemory
-              ? line.words
-                  .join(" ")
-                  .toLowerCase()
-                  .replace(/[^\p{L}\p{N}]/gu, "")
-                  .split("")
-                  .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0)
-              : line.index,
+            arrangementSeed: settings.chorusMemory ? (line.layoutSeed ?? line.index * 31) : (line.index * 31 + (line.pageStart || 0)),
             fontSize: settings.fontSize,
             active: line.active,
             lineFocus: line.active < 0,

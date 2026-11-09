@@ -6,6 +6,7 @@ use tauri::{Emitter, Manager};
 #[derive(Default)]
 pub struct Power {
     pub sleeping: AtomicBool,
+    pub on_battery: AtomicBool,
 }
 #[cfg(target_os = "linux")]
 pub fn start(app: tauri::AppHandle) {
@@ -46,5 +47,8 @@ pub fn start(app: tauri::AppHandle) {
         }
     });
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn start(_: tauri::AppHandle) {}
+
+#[cfg(target_os = "windows")]
+pub use crate::windows::power::start;

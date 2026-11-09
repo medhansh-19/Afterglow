@@ -812,4 +812,35 @@ expect(abs(portableSine.1[3] + 16) < 0.0001, true, "portable FFT resolves known 
 expect(abs(portableSine.1[29] - 16) < 0.0001, true, "portable FFT conjugate bin")
 expect(PortableFFT.forward([1, 2, 3]).0.isEmpty, true, "portable FFT rejects non power-of-two input")
 
+let joinedSentences = LyricLine(time: 0, text: "anymore.Like this;then that", end: 8)
+expect(LyricWordPage.resolve(line: joinedSentences, at: 1, nextLineTime: 8, estimated: true).words,
+    ["anymore.", "Like", "this;", "then", "that"], "period and semicolon split joined lyric words into separate nodes")
+let punctuationVariants = LyricLine(time: 0, text: "Wait...Now；go。Home don't 3.14", end: 10)
+expect(LyricWordPage.resolve(line: punctuationVariants, at: 1, nextLineTime: 10, estimated: true).words,
+    ["Wait...", "Now；", "go。", "Home", "don't", "3.14"], "sentence separators preserve ellipses contractions and decimal numbers")
+let joinedTiming = LyricLine(time: 0, text: "first.Next last", end: 6, words: [
+    .init(text: "first.Next", time: 0, end: 4), .init(text: "last", time: 4, end: 6)])
+expect(LyricWordPage.resolve(line: joinedTiming, at: 3, nextLineTime: 6, estimated: true).activeIndex,
+    1, "opt-in estimated progression reaches the second word inside a joined supplied token")
+expect(LyricWordPage.resolve(line: joinedTiming, at: 3, nextLineTime: 6, estimated: false).activeIndex,
+    0, "precise-only mode does not invent a timestamp inside a joined provider token")
+expect(LyricWordPage.resolve(line: joinedTiming, at: 4.1, nextLineTime: 6, estimated: false).activeIndex,
+    2, "splitting a token preserves the next supplied word's active index")
+expect(joinedTiming.words.map(\.time), [0, 4], "display segmentation does not rewrite provider timestamps")
+let joinedPages = LyricLine(time: 0, text: "one.two;three.four", end: 8)
+expect(LyricWordPage.resolve(line: joinedPages, at: 7.9, nextLineTime: 8, estimated: true, pageSize: 2).words,
+    ["three.", "four"], "sentence-separated words retain graph pagination")
+
+
+let boundaryVocabulary = ["hello", "constellation", "a", "(words)", "[", "]", "Next.Sentence;Still", "3.14", "don't", "सितारे", "light...", "✨", "（bright）", "星。光", "one；two"]
+let boundaryTokens = (0..<23).map { boundaryVocabulary[($0 * 7 + 2) % boundaryVocabulary.count] }
+let boundaryWords = boundaryTokens.enumerated().map { index, text in
+  let time = 1 + Double(index) * 7 / 23
+  return LyricWord(text: text, time: time, end: time + 7 / 23)
+}
+let boundaryLine = LyricLine(time: 1, text: boundaryTokens.joined(separator: " "), end: 8.6, words: boundaryWords)
+expect(LyricWordPage.Prepared(line: boundaryLine).resolve(at: 3, nextLineTime: 9, estimated: true, pageSize: 1).words,
+  ["one；"], "cached group weights preserve floating-point word boundary behavior")
+
+
 print("ALL \(checks) CHECKS PASSED")

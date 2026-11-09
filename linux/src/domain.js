@@ -20,6 +20,17 @@ export const defaults = {
   allowPlainFallback: true,
   allowTimedFallback: true,
 };
+// Provider/privacy settings apply globally and must not change with a song scene.
+const appearanceKeys = Object.keys(defaults).filter(
+  (key) => !["allowPlainFallback", "allowTimedFallback"].includes(key),
+);
+export function snapshotAppearance(settings) {
+  return Object.fromEntries(appearanceKeys.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]]));
+}
+const normalizeSettings = (settings) => ({
+  ...settings,
+  ...(settings.clockSize === undefined ? {} : { clockSize: Math.min(140, Math.max(70, settings.clockSize)) }),
+});
 export function newLibrary() {
   return {
     version: 1,
@@ -148,7 +159,7 @@ export function readLibrary(value) {
   }
   if (value.settings !== undefined) {
     if (!validSettings(value.settings)) invalid();
-    base.settings = { ...defaults, ...value.settings };
+    base.settings = { ...defaults, ...normalizeSettings(value.settings) };
   }
   for (const key of ["scenes", "timing", "imports", "colorSource"]) {
     if (value[key] === undefined) continue;
@@ -164,7 +175,9 @@ export function readLibrary(value) {
       )
         invalid();
     }
-    base[key] = value[key];
+    base[key] = key === "scenes"
+      ? Object.fromEntries(Object.entries(value[key]).map(([id, settings]) => [id, snapshotAppearance(normalizeSettings(settings))]))
+      : value[key];
   }
   if (value.collections !== undefined) {
     if (
@@ -243,66 +256,130 @@ export function positionAt(sample, now) {
     ),
   );
 }
-export function resolveLine(lines, time, estimated = true, duration = 0) {
-  let low = 0,
-    high = lines.length;
+const preparedLines = new WeakMap();
+const preparedChoruses = new WeakMap();
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const characterCount = (text) => [...graphemes.segment(text)].length;
+const vocal = (line) => /[\p{L}\p{N}]/u.test(line.text) &&
+  !["[instrumental]", "(instrumental)", "[music]", "(music)", "[interlude]", "(interlude)"].includes(line.text.trim().toLowerCase());
+function lyricPieces(source) {
+  const chars = [...source], pieces = [];
+  let current = "";
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    if (/\s/u.test(char)) { if (current) pieces.push(current); current = ""; continue; }
+    current += char;
+    if (!".;；。".includes(char)) continue;
+    if (char === "." && /\p{N}/u.test(chars[i - 1] || "") && /\p{N}/u.test(chars[i + 1] || "")) continue;
+    if (chars[i + 1] && ".;；。".includes(chars[i + 1])) continue;
+    pieces.push(current); current = "";
+  }
+  if (current) pieces.push(current);
+  return pieces;
+}
+function prepareLine(line) {
+  if (preparedLines.has(line)) return preparedLines.get(line);
+  const raw = line.words?.length ? line.words.map((word) => word.text) : line.text.trim().split(/\s+/u);
+  const tokens = [], original = [], groups = new Map(), weights = [0];
+  raw.forEach((token, index) => {
+    for (const piece of lyricPieces(token)) {
+      const text = piece.replace(/^[()\[\]{}（）【】「」『』《》]+|[()\[\]{}（）【】「」『』《》]+$/gu, "");
+      if (!/[\p{L}\p{N}]/u.test(text)) continue;
+      if (!groups.has(index)) groups.set(index, [tokens.length, tokens.length]);
+      groups.get(index)[1] = tokens.length + 1;
+      tokens.push(text); original.push(index);
+      weights.push(weights.at(-1) + Math.max(2, characterCount(text)));
+    }
+  });
+  const result = { tokens, original, groups, weights };
+  preparedLines.set(line, result);
+  return result;
+}
+function chorusLines(lines) {
+  if (preparedChoruses.has(lines)) return preparedChoruses.get(lines);
+  const keys = lines.map((line) => vocal(line) ? line.text.toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, " ").trim().replace(/\s+/gu, " ") : "");
+  const canonical = lines.map((_, i) => i), occurrences = new Map();
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue;
+    for (const first of occurrences.get(keys[i]) || []) {
+      if (first > 0 && i > 0 && keys[i - 1] && keys[first - 1] === keys[i - 1]) continue;
+      let length = 0, words = 0;
+      while (first + length < i && i + length < keys.length && keys[i + length] && keys[first + length] === keys[i + length]) {
+        words += keys[i + length].split(" ").length; length++;
+      }
+      if (!(length >= 2 && words >= 6 || length === 1 && words >= 6)) continue;
+      for (let offset = 0; offset < length; offset++) canonical[i + offset] = Math.min(canonical[i + offset], canonical[first + offset]);
+    }
+    if (!occurrences.has(keys[i])) occurrences.set(keys[i], []);
+    occurrences.get(keys[i]).push(i);
+  }
+  preparedChoruses.set(lines, canonical);
+  return canonical;
+}
+export function resolveLine(lines, time, estimated = true, duration = 0, pageSize = 24) {
+  const empty = { index: -1, words: [], active: -1 };
+  if (!Number.isFinite(time) || time < 0 || (duration > 0 && time >= duration)) return empty;
+  let low = 0, high = lines.length;
   while (low < high) {
     const mid = (low + high) >> 1;
-    if (lines[mid].time <= time) low = mid + 1;
-    else high = mid;
+    if (lines[mid].time <= time) low = mid + 1; else high = mid;
   }
-  const index = low - 1,
-    line = lines[index];
-  if (!line || !line.text || (line.end != null && time >= line.end))
-    return { index: -1, words: [], active: -1 };
-  const words = line.words?.length
-    ? line.words.map((w) => w.text)
-    : line.text.trim().split(/\s+/u);
-  let active = -1;
+  const index = low - 1, line = lines[index];
+  if (!line || !vocal(line)) return empty;
+  const nextTime = lines[index + 1]?.time ?? (duration > 0 ? duration : line.time + 5);
+  let end = Math.min(nextTime, line.end ?? nextTime);
+  if (!line.words?.length && end - line.time > 30 && line.text.trim().split(/\s+/u).length <= 24)
+    end = Math.min(end, line.time + Math.min(16, Math.max(8, line.text.trim().split(/\s+/u).length * .8)));
+  if (time >= end) return empty;
+  const prepared = prepareLine(line), { tokens, original, groups, weights } = prepared;
+  if (!tokens.length) return empty;
+  const weighted = (progress, start = 0, stop = tokens.length) => {
+    const target = Math.min(Math.max(progress, 0), .999999) * (weights[stop] - weights[start]);
+    let left = start, right = stop;
+    while (left < right) { const mid = (left + right) >> 1; if (weights[mid + 1] - weights[start] <= target) left = mid + 1; else right = mid; }
+    return Math.min(stop - 1, left);
+  };
+  let active = -1, supplied = -1;
   if (line.words?.length) {
-    for (let i = 0; i < line.words.length; i++) {
-      if (line.words[i].time <= time) active = i;
-    }
-    if (
-      active >= 0 &&
-      line.words[active].end != null &&
-      time >= line.words[active].end
-    )
-      active = -1;
-  } else if (estimated) {
-    const end = Math.min(
-      lines[index + 1]?.time ?? duration ?? line.time + 5,
-      line.end ?? Infinity,
-    );
-    const weights = words.map((w) => Math.max(2, [...w].length)),
-      total = weights.reduce((a, b) => a + b, 0);
-    let target =
-      Math.max(
-        0,
-        Math.min(0.999999, (time - line.time) / Math.max(0.1, end - line.time)),
-      ) * total;
-    active = words.length - 1;
-    for (let i = 0; i < words.length; i++) {
-      target -= weights[i];
-      if (target < 0) {
-        active = i;
-        break;
+    for (let i = 0; i < line.words.length; i++) if (line.words[i].time <= time) supplied = i;
+    if (supplied >= 0 && !(line.words[supplied].end != null && time >= line.words[supplied].end)) {
+      const group = groups.get(supplied);
+      if (group) {
+        active = group[0];
+        if (group[1] - group[0] > 1 && estimated) {
+          const word = line.words[supplied], stop = Math.min(end, word.end ?? line.words[supplied + 1]?.time ?? end);
+          active = weighted((time - word.time) / Math.max(.1, stop - word.time), group[0], group[1]);
+        }
       }
     }
-  }
-  return { index, words, active, exact: !!line.words?.length };
+  } else if (estimated) active = weighted((time - line.time) / Math.max(.1, end - line.time));
+  let anchor = active;
+  if (anchor < 0 && line.words?.length) { anchor = 0; for (let i = 0; i < original.length; i++) if (original[i] <= Math.max(0, supplied)) anchor = i; }
+  if (anchor < 0) anchor = weighted((time - line.time) / Math.max(.1, end - line.time));
+  const capacity = Math.max(1, Math.floor(pageSize)), pageStart = Math.floor(Math.min(tokens.length - 1, Math.max(0, anchor)) / capacity) * capacity;
+  return { index, words: tokens.slice(pageStart, pageStart + capacity), active: active < 0 ? -1 : active - pageStart, exact: !!line.words?.length,
+    pageStart, layoutSeed: chorusLines(lines)[index] * 31 + pageStart };
+}
+export function colorCollection(library, key) {
+  const memberships = library.collections.filter((c) => c.songs.some((s) => s.key === key));
+  // An explicit inheriting collection deliberately opts out of another collection's color.
+  return memberships.find((c) => c.id === library.colorSource[key]) ||
+    memberships.find((c) => c.color != null);
+}
+export function collectionName(library, value, excluding = null) {
+  const name = value.trim();
+  const normalized = (text) => text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+  if (!name || [...name].length > 40 || library.collections.some((c) =>
+    c.id !== excluding && normalized(c.name) === normalized(name)))
+    throw Error("Use a unique collection name of 1–40 characters.");
+  return name;
 }
 export function appearance(library, key, albumColor) {
-  const settings = { ...library.settings, ...library.scenes[key] };
-  const candidates = library.collections.filter(
-    (c) => c.color && c.songs?.some((s) => s.key === key),
-  );
-  const collection =
-    candidates.find((c) => c.id === library.colorSource[key]) || candidates[0];
+  const settings = { ...library.settings, ...snapshotAppearance(library.scenes[key] || library.settings) };
+  const collection = colorCollection(library, key);
   return {
     ...settings,
-    color:
-      collection?.color ||
+    color: collection?.color ||
       (settings.albumColor && albumColor ? albumColor : settings.tint),
   };
 }

@@ -4,6 +4,7 @@ src-tauri/target/
 src-tauri/binaries/
 test-results/
 src-tauri/runtime/*.so*
+src-tauri/runtime/*.dll
 
 src-tauri/gen/
 src-tauri/notices/*
