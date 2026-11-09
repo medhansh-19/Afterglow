@@ -2,7 +2,10 @@
 import array,json,math,os,signal,subprocess,threading,time
 
 def run(*args):return subprocess.check_output(args,text=True).strip()
-subprocess.run(['pulseaudio','--start','--exit-idle-time=-1'],check=True)
+# Use an existing PipeWire-Pulse/PulseAudio server before starting a test server.
+# PipeWire systems commonly install the clients without the pulseaudio daemon.
+if subprocess.run(['pactl','info'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:
+    subprocess.run(['pulseaudio','--start','--exit-idle-time=-1'],check=True)
 module=run('pactl','load-module','module-null-sink','sink_name=afterglow_fixture','rate=48000','channels=2')
 children=[];running=True
 try:
@@ -48,4 +51,7 @@ finally:
     for process in children:
         try:process.wait(timeout=3)
         except subprocess.TimeoutExpired:process.kill();process.wait()
+        if process.stdin:
+            try:process.stdin.close()
+            except BrokenPipeError:pass
     subprocess.run(['pactl','unload-module',module],check=True)

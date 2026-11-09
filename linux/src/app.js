@@ -1074,6 +1074,7 @@ function tick(now) {
       state: {
         settings: outputSettings,
         line: lastLine,
+        plainText: $("#plain-text").textContent,
         playing: !!sample?.playing,
         audio,
       },

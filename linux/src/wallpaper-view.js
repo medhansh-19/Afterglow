@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { renderer } from "./render";
 import { defaults } from "./domain";
 document.body.innerHTML =
-  '<main class="stage desktop-mode"><canvas id="waves"></canvas><div id="clock" class="clock"></div><div id="graph" class="graph"></div></main>';
+  '<main class="stage desktop-mode"><canvas id="waves"></canvas><div id="clock" class="clock"></div><div id="graph" class="graph"></div><div id="plain-text" class="plain-display"></div></main>';
 const visual = renderer(
   document.querySelector("#waves"),
   document.querySelector("#graph"),
@@ -22,6 +22,7 @@ await listen("display-state", (event) => {
     settings: { ...state.settings, ...event.payload.settings },
   };
   received = performance.now();
+  document.querySelector("#plain-text").textContent = state.plainText || "";
 });
 function draw(now) {
   requestAnimationFrame(draw);

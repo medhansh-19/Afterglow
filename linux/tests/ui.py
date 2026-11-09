@@ -4,7 +4,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 out=Path(os.environ.get('AFTERGLOW_TEST_OUTPUT','/tmp/afterglow-linux-ui'));out.mkdir(parents=True,exist_ok=True)
 with sync_playwright() as p:
-    browser=p.chromium.launch(headless=True,executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' if os.path.exists('/Applications/Google Chrome.app') else None)
+    browser=p.chromium.launch(headless=True,executable_path=os.environ.get('AFTERGLOW_CHROMIUM_BINARY') or ('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' if os.path.exists('/Applications/Google Chrome.app') else None))
     page=browser.new_page(viewport={'width':1200,'height':800},reduced_motion='reduce')
     errors=[];page.on('pageerror',lambda err:errors.append(str(err)))
     page.goto('http://127.0.0.1:1420');page.wait_for_load_state('networkidle')
@@ -52,7 +52,32 @@ with sync_playwright() as p:
         page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(100)
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),f'Overflow at {width}'
         assert page.locator('#panel').bounding_box()['width']<=width
+    # The wallpaper must show untimed fallback/imported lyrics as literal text,
+    # then clear them when a timed recording replaces them. It owns no player.
+    wallpaper=browser.new_page(viewport={'width':1200,'height':800})
+    wallpaper.on('pageerror',lambda err:errors.append(str(err)))
+    wallpaper.add_init_script("""
+      window.__AFTERGLOW_WALLPAPER__ = true;
+      window.__TAURI_INTERNALS__ = {
+        transformCallback(callback) { window.deliverDisplay = callback; return 1; },
+        async invoke(command, args) {
+          if (command === 'plugin:event|listen' && args.event === 'display-state') return 1;
+          throw Error('Unexpected wallpaper command: ' + command);
+        }
+      };
+      window.sendDisplay = plainText => window.deliverDisplay({payload:{
+        plainText, settings:{}, playing:false, audio:{level:0,bands:[]},
+        line:{words:[],active:-1,index:-1}
+      }});
+    """)
+    wallpaper.goto('http://127.0.0.1:1420');wallpaper.wait_for_load_state('networkidle')
+    wallpaper.evaluate("window.sendDisplay('सितारे ✨ <script>literal</script>')")
+    expect(wallpaper.locator('#plain-text')).to_have_text('सितारे ✨ <script>literal</script>')
+    expect(wallpaper.locator('#plain-text')).to_be_visible()
+    wallpaper.evaluate("window.sendDisplay('')")
+    expect(wallpaper.locator('#plain-text')).to_be_hidden()
+    wallpaper.close()
     assert not errors,errors
     (out/'report.json').write_text(json.dumps({'passed':True,'errors':errors,'screenshots':str(out)},indent=2))
-    print('PASS browser demo, seek/pause, scene, collection, excerpt/export, persistence, disconnect and responsive controls')
+    print('PASS browser demo, seek/pause, scene, collection, excerpt/export, persistence, disconnect, responsive controls and untimed wallpaper lyrics')
     browser.close()

@@ -3,7 +3,8 @@ on:
   pull_request:
     paths: ['linux/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', '.github/workflows/linux.yml']
   push:
-    branches: ['codex/linux-app']
+    branches: ['main', 'codex/linux-app']
+    paths: ['linux/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', '.github/workflows/linux.yml']
   workflow_dispatch:
 permissions:
   contents: read
