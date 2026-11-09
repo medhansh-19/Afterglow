@@ -90,7 +90,6 @@ public static class AfterglowSmokeWindow {
     Wait-Until { $script:button = Find-Button $Name; $null -ne $script:button } "Native accessible button is missing: $Name"
     $pattern = $null
     if ($script:button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
-    elseif ($script:button.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$pattern)) { $pattern.DoDefaultAction() }
     else { $script:button.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
   }
   $application = Start-Process -FilePath $AppPath -PassThru
