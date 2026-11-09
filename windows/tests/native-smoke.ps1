@@ -105,7 +105,13 @@ public static class AfterglowSmokeWindow {
     [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Clock size'),
     [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Slider)
   )
-  $slider = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sliderCondition)
+  $slider = $null
+  for ($attempt = 0; $attempt -lt 65 -and $null -eq $slider; $attempt++) {
+    Start-Sleep -Milliseconds 150
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
+    $slider = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sliderCondition)
+    if ($null -eq $slider) { [System.Windows.Forms.SendKeys]::SendWait('{TAB}') }
+  }
   if ($null -eq $slider) { throw 'Native accessible clock-size slider is missing.' }
   $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
   $baselineSaves = @((Get-Content $log) | Where-Object { $_ -like '*library-saved*' }).Count
