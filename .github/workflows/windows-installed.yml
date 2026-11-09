@@ -8,6 +8,10 @@ on:
       run_id:
         description: Windows preview workflow containing the installer
         required: true
+      verify_upgrade:
+        description: Also verify upgrading the pinned original 0.1.0 installer
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -39,7 +43,7 @@ jobs:
           path: windows/test-results
 
   upgrade:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_upgrade
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -50,12 +54,19 @@ jobs:
           path: windows/download
           github-token: ${{ github.token }}
           run-id: ${{ inputs.run_id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/baseline
+          github-token: ${{ github.token }}
+          run-id: '42674498927'
       - name: Verify an existing preview upgrades with its library intact
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $old = Join-Path $env:RUNNER_TEMP 'afterglow-old-setup.exe'
-          Invoke-WebRequest 'https://github.com/medhansh-19/Afterglow/releases/download/v3.0.7-preview.1/Afterglow-windows-x64-setup.exe' -OutFile $old
+          $baseline = Get-ChildItem windows/baseline -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $baseline) { throw 'Original 0.1.0 installer missing.' }
+          $old = $baseline.FullName
           $oldHash = (Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($oldHash -ne '0611760eb71e739d41c40774e0221eb698567e2e4892f2e681672df4e8e9c267') { throw 'The published baseline changed. Review the upgrade fixture before proceeding.' }
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-upgrade'
@@ -77,7 +88,8 @@ jobs:
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/after
           $library = Get-Content $libraryPath -Raw | ConvertFrom-Json
           if ($library.settings.clockSize -ne 120 -or $library.colors[0].name -ne 'Upgrade verification' -or $library.colors[0].color -ne '#22ccaa') { throw 'Updated app did not retain saved preferences and colors.' }
-          @{ passed=$true; baseline='0.1.0'; updated='0.1.1'; originalInstallerHash=$oldHash; libraryPreserved=$true; savedColorPreserved=$true; nativeRelaunchPassed=$true } | ConvertTo-Json | Set-Content windows/test-results/upgrade.json
+          $version = [regex]::Match($installer.Name, 'Afterglow_([0-9]+\.[0-9]+\.[0-9]+)_').Groups[1].Value
+          @{ passed=$true; baseline='0.1.0'; updated=$version; originalInstallerHash=$oldHash; libraryPreserved=$true; savedColorPreserved=$true; nativeRelaunchPassed=$true } | ConvertTo-Json | Set-Content windows/test-results/upgrade.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
