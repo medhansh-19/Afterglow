@@ -13,7 +13,13 @@ The browser demo explicitly has no music or capture. It cannot exercise Windows 
 
 ## Windows-native checks
 
-The Windows workflow builds the Swift sidecar, stages its runtime DLLs, builds the native Tauri executable/installer and runs the project checks. Record the exact successful workflow URL, commit and artifact checksums here after completion; no successful Windows run is claimed by this initial evidence entry.
+The Windows installer was built and installed by [Windows preview run 42674498927](https://github.com/medhansh-19/Afterglow/actions/runs/42674498927), commit `87cff9d`, on Windows Server 2025. All 319 Swift checks, 22 JavaScript tests, 3 native Rust tests, the shared helper protocol, private-runtime staging, license collection and NSIS packaging passed. That run's original UI automation failed to locate controls; subsequent changes corrected the test harness's accessibility activation and rendering waits.
+
+**Installed-app acceptance passed** in [run 42681669228](https://github.com/medhansh-19/Afterglow/actions/runs/42681669228), test-harness commit `8a5247a`, using that same installer on a clean Windows runner without Swift installed. Passed checks include packaged helper Unicode/LRC/enhanced LRC/YAML/TXT/error handling, WebView2 readiness, real demo/lyric IPC, Controls and Appearance, two preference saves, on-disk verification, true process restart and value reload, single-instance forwarding, close-to-tray ownership and window restoration. The application binary was unchanged by the test-harness fixes.
+
+Installer: `Afterglow_0.1.0_x64-setup.exe` (approximately 139 MiB). SHA256: `0611760eb71e739d41c40774e0221eb698567e2e4892f2e681672df4e8e9c267`.
+
+The complete [Linux regression run 42653383695](https://github.com/medhansh-19/Afterglow/actions/runs/42653383695) also passed, including real MPRIS, selected-stream audio isolation, Linux packaging, native startup and headless Wayland wallpaper checks. Its snapshot predates the final additional shared appearance/retry features; those later changes passed the portable browser/domain checks described above. The macOS target built successfully with the shared core changes.
 
 `windows/tests/native-smoke.ps1` accepts the **installed or staged packaged layout**:
 
