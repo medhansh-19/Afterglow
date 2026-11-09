@@ -124,7 +124,7 @@ pub fn streams() -> Result<Vec<Stream>, String> {
 struct MtaClient(IAudioClient);
 unsafe impl Send for MtaClient {}
 struct Activation {
-    params: Box<AUDIOCLIENT_ACTIVATION_PARAMS>,
+    _params: Box<AUDIOCLIENT_ACTIVATION_PARAMS>,
     variant: Box<PROPVARIANT>,
 }
 // Read-only, heap-stable activation memory stays alive through callback release.
@@ -177,7 +177,10 @@ fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient
             }),
         },
     });
-    let activation = Arc::new(Activation { params, variant });
+    let activation = Arc::new(Activation {
+        _params: params,
+        variant,
+    });
     let (sender, receiver) = mpsc::sync_channel(1);
     let handler: IActivateAudioInterfaceCompletionHandler = Completion {
         sender: Mutex::new(Some(sender)),
@@ -303,6 +306,12 @@ impl Drop for Capture {
         self.stop();
     }
 }
+struct Process(windows::Win32::Foundation::HANDLE);
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = unsafe { CloseHandle(self.0) };
+    }
+}
 fn capture(
     app: &AppHandle,
     pid: u32,
@@ -312,6 +321,23 @@ fn capture(
     ready: &mpsc::SyncSender<Result<(), String>>,
 ) -> Result<(), String> {
     let _apartment = crate::windows::Apartment::new()?;
+    // Open before async activation: the held process object prevents PID reuse
+    // from redirecting a delayed activation to a newly started process.
+    let process = Process(
+        unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                pid,
+            )
+        }
+        .map_err(|e| e.to_string())?,
+    );
+    if process_name(pid).as_deref() != Some(binary)
+        || unsafe { WaitForSingleObject(process.0, 0) } != windows::Win32::Foundation::WAIT_TIMEOUT
+    {
+        return Err("The selected player process has ended. Refresh audio streams.".into());
+    }
     let client = activate(pid, generation, token)?;
     if generation.load(Ordering::SeqCst) != token {
         return Ok(());
@@ -344,13 +370,14 @@ fn capture(
     }
     unsafe { client.Start() }.map_err(|e| e.to_string())?;
     let _ = ready.send(Ok(()));
-    let result = analyze(app, &capture, pid, binary, generation, token);
+    let result = analyze(app, &capture, &process, pid, binary, generation, token);
     let _ = unsafe { client.Stop() };
     result
 }
 fn analyze(
     app: &AppHandle,
     capture: &IAudioCaptureClient,
+    process: &Process,
     pid: u32,
     binary: &str,
     generation: &AtomicU64,
@@ -361,23 +388,6 @@ fn analyze(
     let mut bins = vec![Complex::new(0.0, 0.0); 2048];
     let mut samples = Vec::with_capacity(2048);
     let mut last_check = std::time::Instant::now();
-    // Hold a handle to this exact process object. A reused PID is not permission
-    // to capture a newly started process with the same executable basename.
-    let process = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
-            false,
-            pid,
-        )
-    }
-    .map_err(|e| e.to_string())?;
-    struct Process(windows::Win32::Foundation::HANDLE);
-    impl Drop for Process {
-        fn drop(&mut self) {
-            let _ = unsafe { CloseHandle(self.0) };
-        }
-    }
-    let process = Process(process);
     while generation.load(Ordering::SeqCst) == token {
         if last_check.elapsed() >= Duration::from_secs(1) {
             if unsafe { WaitForSingleObject(process.0, 0) }

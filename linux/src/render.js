@@ -23,7 +23,8 @@ export function renderer(canvas, graph, clock) {
     key = "";
     invalidation++;
   }
-  new ResizeObserver(resize).observe(canvas);
+  const observer = new ResizeObserver(resize);
+  observer.observe(canvas);
   resize();
   function draw(now, { settings, line, playing, audio, track }) {
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
@@ -163,6 +164,7 @@ export function renderer(canvas, graph, clock) {
   }
   return {
     draw,
+    dispose() { observer.disconnect(); },
     get revision() {
       return invalidation;
     },

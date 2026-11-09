@@ -289,7 +289,11 @@ fn ui_ready(app: tauri::AppHandle) -> Option<String> {
 #[tauri::command]
 fn export_png(path: String, data: String) -> Result<(), String> {
     let path = std::path::Path::new(&path);
-    if path.extension().and_then(|s| s.to_str()) != Some("png") {
+    if !path
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    {
         return Err("Choose a .png filename.".into());
     }
     if data.len() > 16_000_000 {
@@ -370,10 +374,6 @@ fn main() {
                             "restore" => {
                                 let _ = desktop::set(app, false);
                                 let _ = window.emit("restore-window", ());
-                            }
-                            "quit" => {
-                                app.state::<audio::Capture>().stop();
-                                app.exit(0);
                             }
                             _ => {}
                         }

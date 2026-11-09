@@ -46,7 +46,7 @@ pub fn run(app: &tauri::AppHandle) -> Result<(), String> {
     // Ensure the thread message queue exists before exposing the thread ID.
     let mut pending = MSG::default();
     unsafe {
-        PeekMessageW(&mut pending, None, 0, 0, PM_NOREMOVE);
+        let _ = PeekMessageW(&mut pending, None, 0, 0, PM_NOREMOVE);
     }
     THREAD.store(
         unsafe { windows::Win32::System::Threading::GetCurrentThreadId() },

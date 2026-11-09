@@ -1,4 +1,6 @@
+#[cfg(not(target_os = "windows"))]
 use base64::Engine;
+#[cfg(not(target_os = "windows"))]
 use std::{io::Read, time::Duration};
 
 #[cfg(not(target_os = "windows"))]

@@ -109,6 +109,11 @@ public static class AfterglowSmokeWindow {
   Wait-Until { @((Get-Content $log) | Where-Object { $_ -like '*library-saved*' }).Count -gt $baselineSaves } 'First native preference save failed.'
   $range.SetValue(120)
   Wait-Until { @((Get-Content $log) | Where-Object { $_ -like '*library-saved*' }).Count -gt ($baselineSaves + 1) } 'Replacing existing native preferences failed.'
+  $libraryLine = @(Get-Content $log | Where-Object { $_ -like 'library-path:*' })[-1]
+  if (-not $libraryLine) { throw 'Native save did not identify its persisted library.' }
+  $libraryPath = $libraryLine.Substring('library-path:'.Length)
+  $persisted = Get-Content $libraryPath -Raw | ConvertFrom-Json
+  if ($persisted.settings.clockSize -ne 120) { throw 'Clock size 120 did not reach the library file.' }
   # A second invocation forwards to the same owner rather than creating a second app.
   $secondary = Start-Process -FilePath $AppPath -ArgumentList '--action', 'appearance' -PassThru
   if (-not $secondary.WaitForExit(10000)) { $secondary.Kill($true); throw 'Second app instance did not exit.' }
@@ -122,13 +127,27 @@ public static class AfterglowSmokeWindow {
   $restore = Start-Process -FilePath $AppPath -PassThru
   if (-not $restore.WaitForExit(10000)) { $restore.Kill($true); throw 'Restore app invocation did not exit.' }
   Wait-Until { [AfterglowSmokeWindow]::IsWindowVisible($window) } 'Single-instance restore did not reopen the window.'
+  # A true process restart must reload the same preference, not retain in-memory state.
+  Stop-Process -Id $application.Id -Force
+  $application.WaitForExit(5000) | Out-Null
+  $readyCount = @((Get-Content $log) | Where-Object { $_ -eq 'ui-ready' }).Count
+  $application = Start-Process -FilePath $AppPath -PassThru
+  Wait-Until { $application.Refresh(); $application.MainWindowHandle -ne [IntPtr]::Zero } 'Restarted native main window did not appear.'
+  Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'ui-ready' }).Count -gt $readyCount } 'Restarted WebView2 did not become ready.'
+  Invoke-Button 'Controls'
+  Invoke-Button 'Appearance'
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
+  $reloaded = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $sliderCondition)
+  if ($null -eq $reloaded) { throw 'Clock-size slider is missing after restart.' }
+  $range = $reloaded.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
+  if ($range.Current.Value -ne 120) { throw 'Restarted app did not reload clock size 120.' }
   Start-Sleep -Milliseconds 500
   $contents = Get-Content $log -Raw
   if ($contents.Contains('client-error:')) { throw "Native UI reported an error: $contents" }
   $report = @{
     passed = $true; appPath = $AppPath; developerSwiftPathRemoved = $true
     helper = @('demo', 'unicode-lrc-offset', 'enhanced-lrc', 'yaml', 'txt', 'invalid-command')
-    native = @('WebView2-ready', 'accessible-demo-button', 'native-lyrics-bridge', 'controls', 'appearance', 'save-replace-existing-preferences', 'single-instance-action', 'close-to-tray-owner', 'restore-window')
+    native = @('WebView2-ready', 'accessible-demo-button', 'native-lyrics-bridge', 'controls', 'appearance', 'save-replace-existing-preferences', 'process-restart-preference-reload', 'single-instance-action', 'close-to-tray-owner', 'restore-window')
     untested = @('real-Spotify-Apple-Music', 'process-audio-isolation', 'Explorer-wallpaper', 'physical-sleep-battery', 'native-clipboard-dialog', 'tray-menu-click')
   }
   $report | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $OutputDirectory 'report.json') -Encoding utf8

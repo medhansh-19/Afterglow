@@ -1,3 +1,17 @@
+export const PRESET_COLORS = {
+  Rose: "#f066ab", Blue: "#6bb0f7", Amber: "#f7b566", Mint: "#4df5bf", Violet: "#b87aff",
+  "Off-white": "#f2f0e0", Scarlet: "#fa525c", Coral: "#ff7d6e", Orange: "#ff9c45", Gold: "#ffd657",
+  Lime: "#baeb5c", Teal: "#40d1ba", Cyan: "#4ad9f7", Indigo: "#7a8aff",
+};
+export const collectionTint = (collection, album, fallback) => collection?.color === "album" ? (album || PRESET_COLORS.Rose) : (collection?.color || fallback);
+export function saveColor(library, value, label) {
+  const color = value.toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(color)) throw Error("Choose a valid RGB color.");
+  const name = label.trim() || color.toUpperCase();
+  if ([...name].length > 40) throw Error("Color names can contain up to 40 characters.");
+  const existing = library.colors.find((saved) => saved.color.toLowerCase() === color);
+  if (existing) existing.name = name; else library.colors.push({ name, color });
+}
 export const defaults = {
   tint: "#b9a5ef",
   albumColor: true,
@@ -39,6 +53,7 @@ export function newLibrary() {
     scenes: {},
     timing: {},
     imports: {},
+    matches: {},
     collections: [
       { id: "liked", name: "Liked", color: null, songs: [] },
       { id: "favorites", name: "Favorites", color: null, songs: [] },
@@ -161,7 +176,7 @@ export function readLibrary(value) {
     if (!validSettings(value.settings)) invalid();
     base.settings = { ...defaults, ...normalizeSettings(value.settings) };
   }
-  for (const key of ["scenes", "timing", "imports", "colorSource"]) {
+  for (const key of ["scenes", "timing", "imports", "matches", "colorSource"]) {
     if (value[key] === undefined) continue;
     if (!record(value[key]) || Object.keys(value[key]).length > 10000)
       invalid();
@@ -169,7 +184,7 @@ export function readLibrary(value) {
       if (
         (key === "scenes" && !validSettings(entry)) ||
         (key === "timing" && !finite(entry, -5, 5)) ||
-        (key === "imports" && !validDocument(entry)) ||
+        (["imports", "matches"].includes(key) && !validDocument(entry)) ||
         (key === "colorSource" &&
           !(typeof entry === "string" && entry.length <= 128))
       )
@@ -190,7 +205,7 @@ export function readLibrary(value) {
           c.id.length <= 128 &&
           typeof c.name === "string" &&
           c.name.length <= 80 &&
-          (c.color == null || hex(c.color)) &&
+          (c.color == null || c.color === "album" || hex(c.color)) &&
           Array.isArray(c.songs) &&
           c.songs.length <= 10000 &&
           c.songs.every(
@@ -379,8 +394,7 @@ export function appearance(library, key, albumColor) {
   const collection = colorCollection(library, key);
   return {
     ...settings,
-    color: collection?.color ||
-      (settings.albumColor && albumColor ? albumColor : settings.tint),
+    color: collectionTint(collection, albumColor, settings.albumColor && albumColor ? albumColor : settings.tint),
   };
 }
 export function excerptText(lines, selected) {

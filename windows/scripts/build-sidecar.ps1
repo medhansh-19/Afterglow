@@ -80,9 +80,25 @@ try {
     try {
         $system = Join-Path $env:SystemRoot 'System32'
         $env:Path = "$runtime;$system;$env:SystemRoot"
-        $output = '{"command":"demo"}' | & $destination
-        if ($LASTEXITCODE -ne 0) { throw "Staged helper failed without developer PATH (exit $LASTEXITCODE)." }
-        $reply = ($output -join "`n") | ConvertFrom-Json
+        $start = [Diagnostics.ProcessStartInfo]::new($destination)
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardInput = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $start.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
+        $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+        $child = [Diagnostics.Process]::Start($start)
+        $output = $child.StandardOutput.ReadToEndAsync()
+        $errors = $child.StandardError.ReadToEndAsync()
+        $child.StandardInput.Write('{"command":"demo"}')
+        $child.StandardInput.Close()
+        if (-not $child.WaitForExit(20000)) {
+            $child.Kill($true)
+            throw 'Staged helper timed out without developer PATH.'
+        }
+        if ($child.ExitCode -ne 0) { throw "Staged helper failed without developer PATH (exit $($child.ExitCode)): $($errors.Result)" }
+        $reply = $output.Result | ConvertFrom-Json
         if (-not $reply.document.lines.Count) { throw 'Staged helper returned no timed demo lyrics.' }
     } finally { $env:Path = $originalPath }
     Write-Host "Staged $destination with $((Get-ChildItem $runtime -Filter '*.dll').Count) private runtime DLLs."

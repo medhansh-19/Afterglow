@@ -127,3 +127,34 @@ test("instrumental markers and sparse long holds yield to waves without erasing 
   const line = { time: 0, text: Array.from({ length: 30 }, (_, i) => `word${i}`).join(" "), words: [] };
   assert.equal(resolveLine([line], 100, true, 120).index, 0);
 });
+
+test("album-color collections resolve live artwork and survive persistence", async () => {
+  const { collectionTint } = await import("../../linux/src/domain.js");
+  const library = newLibrary();
+  library.collections[0].songs.push(membership());
+  library.collections[0].color = "album";
+  assert.equal(appearance(library, songKey, "#010203").color, "#010203");
+  assert.equal(appearance(library, songKey, "#aabbcc").color, "#aabbcc");
+  assert.equal(readLibrary(library).collections[0].color, "album");
+  assert.equal(collectionTint(library.collections[0], null, "#123456"), "#f066ab");
+});
+
+test("named saved swatches deduplicate canonical RGB and retain edited labels", async () => {
+  const { saveColor } = await import("../../linux/src/domain.js");
+  const library = newLibrary();
+  saveColor(library, "#AABBCC", "Ocean");
+  saveColor(library, "#aabbcc", "Evening");
+  assert.equal(library.colors.length, 1);
+  assert.equal(library.colors[0].name, "Evening");
+  assert.equal(readLibrary(library).colors[0].color, "#aabbcc");
+  assert.throws(() => saveColor(library, "#xyzxyz", "Invalid"));
+});
+
+test("selected alternative documents persist independently of original imports", () => {
+  const library = newLibrary();
+  library.matches[songKey] = { source: "lrclib", manualMatch: true, lines: [{ time: 1, text: "Chosen timing", words: [] }] };
+  const loaded = readLibrary(JSON.parse(JSON.stringify(library)));
+  assert.equal(loaded.matches[songKey].lines[0].text, "Chosen timing");
+  assert.equal(loaded.matches[songKey].manualMatch, true);
+  assert.deepEqual(loaded.imports, {});
+});

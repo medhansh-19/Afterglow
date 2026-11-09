@@ -679,3 +679,22 @@ code {
     inset: 29% 3% 29%;
   }
 }
+
+/* Appearance and Collections share the real playback renderer and bounded preview budget. */
+.live-preview {
+  position: relative;
+  isolation: isolate;
+  height: 260px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.live-preview canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+}
+.live-preview .graph { inset: 35% 5% 12%; }
+.live-preview .clock { top: 4%; transform: scale(.7); transform-origin: top center; }

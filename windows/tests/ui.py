@@ -39,6 +39,9 @@ with sync_playwright() as p:
 
     page.locator("#controls").click()
     page.get_by_role("button", name="Appearance", exact=True).click()
+    expect(page.locator("#preview-graph svg")).to_be_visible()
+    expect(page.locator("#preview-status")).to_contain_text("Paused preview")
+    page.screenshot(path=str(out / "appearance-preview.png"))
     clock = page.locator('[data-setting="clockSize"]')
     assert clock.get_attribute("min") == "70" and clock.get_attribute("max") == "140"
     for style in ["Minimal", "Flip", "Rounded", "Glass", "Ring", "Analog", "Classic"]:
@@ -57,6 +60,14 @@ with sync_playwright() as p:
     download.value.save_as(out / "lyric-map.png")
     assert struct.unpack(">II", (out / "lyric-map.png").read_bytes()[16:24]) == (1600, 1000)
 
+    page.locator("#saved-color-name").fill("Moonlight")
+    page.get_by_role("button", name="Save this color", exact=True).click()
+    expect(page.locator('[data-color-name="0"]')).to_have_value("Moonlight")
+    page.locator('[data-color-name="0"]').fill("Ocean")
+    page.locator('[data-color-name="0"]').press("Tab")
+    page.locator('[data-preset="lyrics"]').select_option("#6bb0f7")
+    expect(page.locator('[data-setting="tint"]')).to_have_value("#6bb0f7")
+    page.locator('[data-preset="lyrics"]').select_option("#22ccaa")
     page.get_by_role("button", name="Collections", exact=True).click()
     page.locator("#collection-name").fill("LIKED")
     page.get_by_role("button", name="Create collection", exact=True).click()
@@ -67,6 +78,10 @@ with sync_playwright() as p:
     section = page.locator(".collection").filter(has=page.locator('input[value="Late nights"]'))
     section.get_by_role("button", name="Save current song").click()
     expect(page.locator(".saved-song")).to_have_count(1)
+    section.locator('[data-collection-mode]').select_option("album")
+    expect(section.locator('[data-collection-mode]')).to_have_value("album")
+    section.locator('[data-collection-mode]').select_option("#6bb0f7")
+    expect(section.locator('[data-collection-color]')).to_have_value("#6bb0f7")
     section.get_by_role("button", name="Delete collection", exact=True).click()
     deletion = page.get_by_role("dialog", name="Delete Late nights?")
     expect(deletion).to_be_visible()
@@ -112,6 +127,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)
     saved = page.evaluate(f"JSON.parse(localStorage.getItem('{store}'))")
     assert len(saved["excerpts"]) == 1 and saved["timing"]
+    assert saved["colors"] == [{"name": "Ocean", "color": "#22ccaa"}]
     assert all("allowTimedFallback" not in scene for scene in saved["scenes"].values())
     page.reload()
     page.wait_for_load_state("networkidle")

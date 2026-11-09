@@ -43,6 +43,17 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: WPARAM, lp: 
         let state = &mut *pointer;
         match message {
             WM_TIMER => state.publish(),
+            WM_DISPLAYCHANGE => {
+                if state.app.get_webview_window("wallpaper").is_some() {
+                    let app = state.app.clone();
+                    let dispatcher = app.clone();
+                    let _ = dispatcher.run_on_main_thread(move || {
+                        let _ = crate::windows::desktop::set(&app, false);
+                        let _ = app.emit_to("main", "restore-window", ());
+                        let _ = app.emit_to("main", "desktop-error", "Display settings changed. Afterglow returned to its window; choose Desktop again for the current display.");
+                    });
+                }
+            }
             WM_WTSSESSION_CHANGE => {
                 if wp.0 == 7 {
                     state.locked = true;

@@ -34,11 +34,33 @@ fn session(bus: &str) -> Result<Session, String> {
 }
 pub fn players(selected: Option<String>) -> Result<Vec<Snapshot>, String> {
     let _apartment = super::Apartment::new()?;
-    let sessions = manager()?.GetSessions().map_err(|e| e.to_string())?;
+    let sessions: Vec<_> = manager()?
+        .GetSessions()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|session| {
+            session
+                .SourceAppUserModelId()
+                .ok()
+                .map(|id| (id.to_string(), session))
+        })
+        .collect();
+    // Count identities before requesting metadata. A broken duplicate session is
+    // still ambiguous and must not make its healthy neighbor look uniquely safe.
+    let identities = identity_counts(sessions.iter().map(|(id, _)| id.as_str()));
+    if selected
+        .as_ref()
+        .is_some_and(|id| identities.get(id).is_some_and(|count| *count > 1))
+    {
+        return Err("Multiple Windows media sessions share this player identity. Close extra browser tabs or player windows, then reconnect.".into());
+    }
+    let ambiguous = identities.values().any(|count| *count > 1);
     let mut output = Vec::new();
-    for session in sessions {
+    for (bus, session) in sessions {
+        if identities[&bus] != 1 || selected.as_ref().is_some_and(|id| *id != bus) {
+            continue;
+        }
         let result = (|| -> windows::core::Result<Snapshot> {
-            let bus = session.SourceAppUserModelId()?.to_string();
             let metadata = session.TryGetMediaPropertiesAsync()?.get()?;
             let playback = session.GetPlaybackInfo()?;
             let timeline = session.GetTimelineProperties()?;
@@ -62,17 +84,7 @@ pub fn players(selected: Option<String>) -> Result<Vec<Snapshot>, String> {
                 .as_secs_f64();
             let updated =
                 timeline.LastUpdatedTime()?.UniversalTime as f64 / 10_000_000.0 - 11_644_473_600.0;
-            let elapsed = if playing && updated > 0.0 {
-                (unix - updated).max(0.0)
-            } else {
-                0.0
-            };
-            let position = (position + elapsed * rate).max(0.0);
-            let position = if duration > 0.0 {
-                position.min(duration)
-            } else {
-                position
-            };
+            let position = sampled_position(position, duration, updated, unix, playing, rate);
             let lower = bus.to_lowercase();
             let identity = if lower.contains("spotify") {
                 "Spotify".into()
@@ -96,23 +108,10 @@ pub fn players(selected: Option<String>) -> Result<Vec<Snapshot>, String> {
             })
         })();
         if let Ok(snapshot) = result {
-            if selected.as_ref().is_none_or(|id| *id == snapshot.bus) {
-                output.push(snapshot);
-            }
+            output.push(snapshot);
         }
     }
-    let mut identities = std::collections::HashMap::new();
-    for snapshot in &output {
-        *identities.entry(snapshot.bus.clone()).or_insert(0) += 1;
-    }
-    let ambiguous = identities.values().any(|count| *count > 1);
-    output.retain(|snapshot| identities[&snapshot.bus] == 1);
-    if ambiguous
-        && (output.is_empty()
-            || selected
-                .as_ref()
-                .is_some_and(|id| identities.get(id).is_some_and(|count| *count > 1)))
-    {
+    if ambiguous && output.is_empty() {
         return Err("Multiple Windows media sessions share a player identity. Close extra browser tabs or player windows, then refresh. Afterglow will not control an ambiguous session.".into());
     }
     Ok(output)
@@ -182,4 +181,64 @@ pub fn artwork(bus: String) -> Result<Option<String>, String> {
         "data:{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
     )))
+}
+
+fn identity_counts<'a>(
+    ids: impl Iterator<Item = &'a str>,
+) -> std::collections::HashMap<String, usize> {
+    let mut counts = std::collections::HashMap::new();
+    for id in ids {
+        *counts.entry(id.to_owned()).or_insert(0) += 1;
+    }
+    counts
+}
+fn sampled_position(
+    position: f64,
+    duration: f64,
+    updated: f64,
+    now: f64,
+    playing: bool,
+    rate: f64,
+) -> f64 {
+    let elapsed = if playing && updated > 0.0 {
+        (now - updated).max(0.0)
+    } else {
+        0.0
+    };
+    let position = (position + elapsed * rate).max(0.0);
+    if duration > 0.0 {
+        position.min(duration)
+    } else {
+        position
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn smtc_positions_extrapolate_only_playing_and_stay_in_track_bounds() {
+        assert_eq!(
+            sampled_position(10.0, 120.0, 1000.0, 1005.0, true, 2.0),
+            20.0
+        );
+        assert_eq!(
+            sampled_position(10.0, 120.0, 1000.0, 1005.0, false, 2.0),
+            10.0
+        );
+        assert_eq!(
+            sampled_position(118.0, 120.0, 1000.0, 1005.0, true, 1.0),
+            120.0
+        );
+        assert_eq!(
+            sampled_position(10.0, 120.0, 1006.0, 1005.0, true, 1.0),
+            10.0
+        );
+        assert_eq!(sampled_position(-2.0, 120.0, 0.0, 1005.0, true, 1.0), 0.0);
+    }
+    #[test]
+    fn raw_identity_duplicates_are_ambiguous_before_metadata_reads() {
+        let counts = identity_counts(["Spotify.exe", "browser", "browser"].into_iter());
+        assert_eq!(counts["Spotify.exe"], 1);
+        assert_eq!(counts["browser"], 2);
+    }
 }
