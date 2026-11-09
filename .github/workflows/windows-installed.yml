@@ -1,0 +1,156 @@
+name: Windows installed preview
+on:
+  push:
+    branches: [codex/windows-app]
+    paths: [.github/workflows/windows-installed.yml, windows/tests/native-smoke.ps1]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Windows preview workflow containing the installer
+        required: true
+      stage_release:
+        description: Upload a verified build to the Windows 0.1.1 draft and versioned website asset
+        type: boolean
+        default: false
+      validation_run_id:
+        description: Successful clean install and upgrade validation run (required when staging)
+        required: false
+      verify_upgrade:
+        description: Also verify upgrading the pinned original 0.1.0 installer
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  installed:
+    if: ${{ !inputs.stage_release }}
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/download
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id || '42674498927' }}
+      - name: Install and validate without Swift installed
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem windows/download -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Installer missing' }
+          $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
+          $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
+          if ($setup.ExitCode -ne 0) { throw 'Installer failed' }
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-installed-validation
+          path: windows/test-results
+
+  upgrade:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_upgrade && !inputs.stage_release
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/download
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/baseline
+          github-token: ${{ github.token }}
+          run-id: '42674498927'
+      - name: Verify an existing preview upgrades with its library intact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $baseline = Get-ChildItem windows/baseline -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $baseline) { throw 'Original 0.1.0 installer missing.' }
+          $old = $baseline.FullName
+          $oldHash = (Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($oldHash -ne '0611760eb71e739d41c40774e0221eb698567e2e4892f2e681672df4e8e9c267') { throw 'The published baseline changed. Review the upgrade fixture before proceeding.' }
+          $install = Join-Path $env:RUNNER_TEMP 'afterglow-upgrade'
+          $setup = Start-Process $old -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw 'Baseline installation failed.' }
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/before
+          $line = @(Get-Content windows/test-results/before/native.log | Where-Object { $_ -like 'library-path:*' })[-1]
+          if (-not $line) { throw 'Baseline library path missing.' }
+          $libraryPath = $line.Substring('library-path:'.Length)
+          $library = Get-Content $libraryPath -Raw | ConvertFrom-Json
+          $library.colors = @([pscustomobject]@{name='Upgrade verification';color='#22ccaa'})
+          $library | ConvertTo-Json -Depth 50 | Set-Content $libraryPath -Encoding utf8NoBOM
+          $before = (Get-FileHash $libraryPath -Algorithm SHA256).Hash
+          $installer = Get-ChildItem windows/download -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'New installer missing.' }
+          $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw 'Upgrade installation failed.' }
+          if ((Get-FileHash $libraryPath -Algorithm SHA256).Hash -ne $before) { throw 'Installer modified the existing library.' }
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/after
+          $library = Get-Content $libraryPath -Raw | ConvertFrom-Json
+          if ($library.settings.clockSize -ne 120 -or $library.colors[0].name -ne 'Upgrade verification' -or $library.colors[0].color -ne '#22ccaa') { throw 'Updated app did not retain saved preferences and colors.' }
+          $version = [regex]::Match($installer.Name, 'Afterglow_([0-9]+\.[0-9]+\.[0-9]+)_').Groups[1].Value
+          @{ passed=$true; baseline='0.1.0'; updated=$version; originalInstallerHash=$oldHash; libraryPreserved=$true; savedColorPreserved=$true; nativeRelaunchPassed=$true } | ConvertTo-Json | Set-Content windows/test-results/upgrade.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-upgrade-validation
+          path: windows/test-results
+
+  stage-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.stage_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.run_id }}
+      VALIDATION_RUN: ${{ inputs.validation_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the successful build and clean-machine upgrade checks
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, subprocess
+          def gh(*args): return json.loads(subprocess.check_output(['gh', *args], text=True))
+          for name in ['BUILD_RUN', 'VALIDATION_RUN']:
+              assert os.environ[name].isdigit(), 'Use numeric workflow run IDs.'
+              run = gh('api', 'repos/medhansh-19/Afterglow/actions/runs/' + os.environ[name])
+              assert run['conclusion'] == 'success', name + ' must have passed.'
+              if name == 'BUILD_RUN': build = run
+          jobs = gh('api', 'repos/medhansh-19/Afterglow/actions/runs/' + os.environ['VALIDATION_RUN'] + '/jobs')['jobs']
+          assert all(any(j['name'] == n and j['conclusion'] == 'success' for j in jobs) for n in ['installed', 'upgrade']), 'Clean install and upgrade must both pass.'
+          release = gh('release', 'view', 'windows-v0.1.1', '--json', 'isDraft,targetCommitish')
+          assert release['isDraft'] and release['targetCommitish'] == build['head_sha'], 'Stage only the tested draft source.'
+          PYCODE
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/download
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+      - name: Upload the verified installer without changing the live website alias
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import hashlib, shutil
+          source = next(Path('windows/download/packages').glob('*setup.exe'))
+          digest = hashlib.sha256(source.read_bytes()).hexdigest()
+          assert digest == 'f9a877d71ba2f2ced8ac83a668ebc4650e964bba6706b0a1676799967766e6c7', 'Installer differs from the tested 0.1.1 artifact.'
+          stage = Path('windows/stage'); stage.mkdir()
+          shutil.copy2(source, stage/'Afterglow-windows-x64-setup.exe')
+          shutil.copy2('windows/VALIDATION.md', stage/'VALIDATION.md')
+          (stage/'SHA256SUMS.txt').write_text(digest + '  Afterglow-windows-x64-setup.exe\n')
+          shutil.copy2(source, stage/'Afterglow-windows-0.1.1-x64-setup.exe')
+          PYCODE
+          gh release upload windows-v0.1.1 windows/stage/Afterglow-windows-x64-setup.exe windows/stage/SHA256SUMS.txt windows/stage/VALIDATION.md --clobber
+          gh release upload v3.0.7-preview.1 windows/stage/Afterglow-windows-0.1.1-x64-setup.exe --clobber

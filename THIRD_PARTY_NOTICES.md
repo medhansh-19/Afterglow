@@ -4,6 +4,12 @@ Afterglow depends on [Yams 6.2.2](https://github.com/jpsim/Yams/tree/6.2.2), an 
 
 Lyric services, lyrics, album artwork and player brands are owned by their respective rights holders; Afterglow's rights notice does not cover them.
 
+## Linux and Windows previews
+
+The desktop previews also use Tauri, its plugins, the pinned Rust dependencies in `linux/src-tauri/Cargo.lock`, and the bundled Swift/Foundation runtime. Windows adapters use the `windows` and `windows-future` Rust crates. `linux/scripts/collect-notices.py` collects the dependency license files and an inventory into the packaged `notices` directory, together with Swift, Foundation, ICU, Yams and Afterglow notices. Run it before packaging either platform.
+
+The shared interface bundles Manrope and Instrument Serif; their SIL Open Font License files accompany them in `linux/public/fonts/`. Windows uses Microsoft's installed WebView2 runtime, which is separate from the Swift lyric helper.
+
 ## Yams license
 
 ```text

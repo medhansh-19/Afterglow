@@ -9,8 +9,9 @@ pub fn start(app: tauri::AppHandle) -> Result<(), String> {
         );
     }
     std::thread::spawn(move || {
-        if let Err(error) = run(&app) {
-            app.state::<Shortcuts>().0.store(false, Ordering::SeqCst);
+        let result = run(&app);
+        app.state::<Shortcuts>().0.store(false, Ordering::SeqCst);
+        if let Err(error) = result {
             let _ = app.emit("shortcut-state", error);
         }
     });
@@ -164,7 +165,12 @@ fn run(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn run(_: &tauri::AppHandle) -> Result<(), String> {
     Err("Global shortcut integration requires Linux.".into())
+}
+
+#[cfg(target_os = "windows")]
+fn run(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::windows::shortcuts::run(app)
 }

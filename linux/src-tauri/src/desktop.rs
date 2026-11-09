@@ -90,7 +90,10 @@ pub fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     );
     Ok(())
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn set(_: &tauri::AppHandle, _: bool) -> Result<(), String> {
     Err("Desktop mode requires Linux.".into())
 }
+
+#[cfg(target_os = "windows")]
+pub use crate::windows::desktop::set;

@@ -1,0 +1,4 @@
+# The native Windows executable must start without a developer VC runtime in PATH.
+# Swift's separate DLL dependencies are deployed privately with its lyric helper.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

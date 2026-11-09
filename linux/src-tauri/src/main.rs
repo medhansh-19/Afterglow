@@ -5,6 +5,8 @@ mod desktop;
 mod player;
 mod power;
 mod shortcuts;
+#[cfg(target_os = "windows")]
+mod windows;
 use std::{
     io::{Read, Write},
     process::{Command, Stdio},
@@ -15,6 +17,17 @@ use std::{
 struct Lifecycle {
     ready: std::sync::atomic::AtomicBool,
     pending: Mutex<Option<String>>,
+}
+fn smoke_log(message: &str) {
+    if let Some(path) = std::env::var_os("AFTERGLOW_SMOKE_LOG") {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{message}");
+        }
+    }
 }
 static LYRICS_LOCK: Mutex<()> = Mutex::new(());
 static LYRICS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -44,6 +57,13 @@ async fn lyrics(
     app: tauri::AppHandle,
     request: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    smoke_log(&format!(
+        "lyrics:{}",
+        request
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("lookup")
+    ));
     let generation = LYRICS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let input = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
     if input.len() > 600_000 {
@@ -60,21 +80,46 @@ async fn lyrics(
         let executable = executable
             .parent()
             .ok_or("Missing executable directory")?
-            .join("afterglow-lyrics");
+            .join(if cfg!(windows) {
+                "afterglow-lyrics.exe"
+            } else {
+                "afterglow-lyrics"
+            });
         let executable = if executable.exists() {
             executable
         } else {
             // Development helper has the target-triple suffix required by Tauri packaging.
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("binaries")
-                .join(format!("afterglow-lyrics-{}", env!("AFTERGLOW_TARGET")))
+                .join(format!(
+                    "afterglow-lyrics-{}{}",
+                    env!("AFTERGLOW_TARGET"),
+                    if cfg!(windows) { ".exe" } else { "" }
+                ))
         };
         let mut command = Command::new(executable);
         if let Ok(resources) = app.path().resource_dir() {
             let runtime = resources.join("runtime");
             if runtime.is_dir() {
+                #[cfg(not(target_os = "windows"))]
                 command.env("LD_LIBRARY_PATH", runtime);
+                #[cfg(target_os = "windows")]
+                {
+                    let mut paths = vec![runtime];
+                    paths.extend(std::env::split_paths(
+                        &std::env::var_os("PATH").unwrap_or_default(),
+                    ));
+                    command.env(
+                        "PATH",
+                        std::env::join_paths(paths).map_err(|e| e.to_string())?,
+                    );
+                }
             }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW for the console sidecar.
         }
         let mut child = command
             .stdin(Stdio::piped())
@@ -154,7 +199,13 @@ fn save_library(app: tauri::AppHandle, library: serde_json::Value) -> Result<(),
     file.write_all(&data)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())?;
-    std::fs::rename(temporary, path).map_err(|e| e.to_string())
+    #[cfg(target_os = "windows")]
+    windows::storage::replace(&temporary, &path)?;
+    #[cfg(not(target_os = "windows"))]
+    std::fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
+    smoke_log(&format!("library-path:{}", path.display()));
+    smoke_log("library-saved");
+    Ok(())
 }
 #[tauri::command]
 async fn audio_streams() -> Result<Vec<audio::Stream>, String> {
@@ -163,23 +214,25 @@ async fn audio_streams() -> Result<Vec<audio::Stream>, String> {
         .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn audio_start(
-    app: tauri::AppHandle,
-    capture: State<audio::Capture>,
-    index: u32,
-) -> Result<(), String> {
-    if app
-        .state::<power::Power>()
-        .sleeping
-        .load(std::sync::atomic::Ordering::SeqCst)
-    {
-        return Err("Audio capture is suspended while the system sleeps.".into());
-    }
-    capture.start(app, index)
+async fn audio_start(app: tauri::AppHandle, index: u32) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if app
+            .state::<power::Power>()
+            .sleeping
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err("Audio capture is suspended while the system sleeps.".into());
+        }
+        app.state::<audio::Capture>().start(app.clone(), index)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn audio_stop(capture: State<audio::Capture>) {
-    capture.stop();
+async fn audio_stop(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<audio::Capture>().stop())
+        .await
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
 fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
@@ -191,11 +244,22 @@ fn publish_display(app: tauri::AppHandle, state: serde_json::Value) -> Result<()
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
+fn disable_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return windows::shortcuts::stop(&app);
+    #[cfg(not(target_os = "windows"))]
+    Err("Restart Afterglow to release this desktop shortcut session.".into())
+}
+#[tauri::command]
 fn enable_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
     shortcuts::start(app)
 }
 #[tauri::command]
 fn client_error(message: String) {
+    smoke_log(&format!(
+        "client-error: {}",
+        message.chars().take(2000).collect::<String>()
+    ));
     eprintln!(
         "Afterglow UI error: {}",
         message.chars().take(2000).collect::<String>()
@@ -206,13 +270,30 @@ fn ui_ready(app: tauri::AppHandle) -> Option<String> {
     let state = app.state::<Lifecycle>();
     state.ready.store(true, std::sync::atomic::Ordering::SeqCst);
     eprintln!("Afterglow UI ready");
+    smoke_log("ui-ready");
+    #[cfg(target_os = "windows")]
+    {
+        let power = app.state::<power::Power>();
+        let _ = app.emit_to(
+            "main",
+            "power-state",
+            serde_json::json!({
+                "sleeping": power.sleeping.load(std::sync::atomic::Ordering::SeqCst),
+                "onBattery": power.on_battery.load(std::sync::atomic::Ordering::SeqCst)
+            }),
+        );
+    }
     let pending = state.pending.lock().unwrap().take();
     pending
 }
 #[tauri::command]
 fn export_png(path: String, data: String) -> Result<(), String> {
     let path = std::path::Path::new(&path);
-    if path.extension().and_then(|s| s.to_str()) != Some("png") {
+    if !path
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    {
         return Err("Choose a .png filename.".into());
     }
     if data.len() > 16_000_000 {
@@ -232,6 +313,11 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 if let Some(index) = args.iter().position(|a| a == "--action") {
                     if let Some(action) = args.get(index + 1) {
+                        smoke_log(&format!("single-instance:{action}"));
+                        if app.get_webview_window("wallpaper").is_none() {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                         let lifecycle = app.state::<Lifecycle>();
                         if lifecycle.ready.load(std::sync::atomic::Ordering::SeqCst) {
                             let _ = window.emit("action", action);
@@ -274,6 +360,11 @@ fn main() {
                 .tooltip("Afterglow")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
+                    if event.id.as_ref() == "quit" {
+                        app.state::<audio::Capture>().stop();
+                        app.exit(0);
+                        return;
+                    }
                     if let Some(window) = app.get_webview_window("main") {
                         match event.id.as_ref() {
                             "open" => {
@@ -284,16 +375,28 @@ fn main() {
                                 let _ = desktop::set(app, false);
                                 let _ = window.emit("restore-window", ());
                             }
-                            "quit" => {
-                                app.state::<audio::Capture>().stop();
-                                app.exit(0);
-                            }
                             _ => {}
                         }
                     }
                 })
                 .build(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(target_os = "windows")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    if window
+                        .app_handle()
+                        .get_webview_window("wallpaper")
+                        .is_none()
+                    {
+                        window.app_handle().state::<audio::Capture>().stop();
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             players,
@@ -308,6 +411,7 @@ fn main() {
             desktop_mode,
             publish_display,
             enable_shortcuts,
+            disable_shortcuts,
             ui_ready,
             client_error,
             export_png

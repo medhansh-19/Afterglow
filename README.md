@@ -49,6 +49,12 @@ A Linux port is being developed alongside the native Mac app in [`linux/`](linux
 
 This is a development preview, not a full-parity release. Desktop wallpaper, global shortcuts, capture/share behavior and player compatibility require desktop-specific validation. See the [feature and release checklist](linux/PARITY.md) before distributing it as a stable Linux version.
 
+## Windows development preview
+
+The [Windows port](windows/README.md) targets Windows 11 x64, sharing the Linux port's Tauri interface and the Mac app's Swift lyric engine. Windows adapters use media sessions, process-only audio capture and Explorer desktop integration. The **Windows preview** workflow builds a setup executable with its bundled lyric runtime.
+
+See the [Windows feature audit](windows/PARITY.md) and [validation report](windows/VALIDATION.md) for the remaining differences and hardware checks. This is a development preview, not a claim of complete Mac parity.
+
 ## Lyrics & privacy
 
 Fallback sources run automatically. For small duration differences, Afterglow selects the closest compatible timed recording and labels it; timing may differ slightly. Synced coverage varies; lyrics.ovh provides untimed text only. Manage backups and imports in **Lyric library**. Track metadata goes to enabled lyric services; caches and preferences stay on your Mac.

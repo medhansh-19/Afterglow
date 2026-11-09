@@ -39,8 +39,8 @@ export function ribbonMesh({
         x: x * width,
         y: reducedMotion
           ? height * 0.5 +
-            Math.sin(x * 3 * Math.PI + layer * 0.06) * 15 +
-            layer * 1.5
+            Math.sin(x * 3 * Math.PI + layer * 0.06) * height * .025 +
+            layer * height * .0025
           : height * 0.5 +
             Math.tanh((wave * 1.05 + fan * layer) * activity) * height * 0.46,
       };

@@ -80,11 +80,11 @@ pub fn control(bus: String, action: String, position: Option<f64>) -> Result<(),
     result.map_err(|e| e.to_string())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn players(_: Option<String>) -> Result<Vec<Snapshot>, String> {
     Err("Player integration requires Linux. Use the silent demo to preview the interface.".into())
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn control(_: String, _: String, _: Option<f64>) -> Result<(), String> {
     Err("MPRIS requires Linux.".into())
 }
@@ -118,3 +118,6 @@ mod tests {
         assert!(control(bus, "not-an-action".into(), None).is_err());
     }
 }
+
+#[cfg(target_os = "windows")]
+pub use crate::windows::player::{control, players};

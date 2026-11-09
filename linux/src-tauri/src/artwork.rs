@@ -1,6 +1,9 @@
+#[cfg(not(target_os = "windows"))]
 use base64::Engine;
+#[cfg(not(target_os = "windows"))]
 use std::{io::Read, time::Duration};
 
+#[cfg(not(target_os = "windows"))]
 pub fn fetch(bus: String) -> Result<Option<String>, String> {
     let snapshots = crate::player::players(Some(bus))?;
     let Some(uri) = snapshots.first().and_then(|s| s.artwork.as_ref()) else {
@@ -78,3 +81,6 @@ pub fn fetch(bus: String) -> Result<Option<String>, String> {
         base64::engine::general_purpose::STANDARD.encode(bytes)
     )))
 }
+
+#[cfg(target_os = "windows")]
+pub use crate::windows::player::artwork as fetch;
