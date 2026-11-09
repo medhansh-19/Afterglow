@@ -2,7 +2,7 @@
 
 Scope: Windows first, using the existing Tauri application. macOS uses a separate Swift app and Linux Debian installations require a package-manager strategy; neither will be advertised as auto-updating by this change.
 
-1. Use the official Tauri v2 updater and mandatory signed NSIS artifacts. Keep the existing Windows application identifier and settings paths. Increment Windows version to 0.2.0.
+1. Use the official Tauri v2 updater and mandatory signed and version-bound NSIS artifacts. Keep the existing Windows application identifier and settings paths. Increment Windows version to 0.2.0.
 2. Check on launch after a short delay, then every six hours. Add native tray actions for manual checks and a persisted automatic-check preference. Never install without consent. Suppress repeated automatic prompts for the same version until the next app launch. Manual checks always report results. Network failures remain quiet in background checks.
 3. Download and verify before offering restart/install. Preserve the current installation on download or signature failure. Serialize checks/installations. Use native dialogs so keyboard navigation and screen readers follow the OS.
 4. Publish signed artifacts and a Windows-only manifest in a draft GitHub release through a separate, manually dispatched workflow. The public endpoint points to an explicitly promoted `windows-updates` release so unrelated Mac/Linux releases cannot change the update channel. Release publication is a deliberate final operation after testing.

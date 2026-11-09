@@ -9,6 +9,8 @@ export function manifest({ version, tag, installer, signature }) {
   // Tauri signatures are base64-encoded minisign signature files.
   const decoded = Buffer.from(signature.trim(), 'base64').toString('utf8');
   if (!decoded.startsWith('untrusted comment:') || !decoded.includes('trusted comment:')) throw new Error('Invalid updater signature.');
+  const trusted = decoded.split('\n').find(line => line.startsWith('trusted comment:')) ?? '';
+  if (!trusted.split(/\s+/).includes(`version:${version}`)) throw new Error('Signature version must match the manifest.');
   return { version, notes: `Afterglow ${version} for Windows.`, platforms: {
     'windows-x86_64': { url: `https://github.com/medhansh-19/Afterglow/releases/download/${tag}/${encodeURIComponent(installer)}`, signature: signature.trim() }
   }};
