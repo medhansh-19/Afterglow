@@ -37,6 +37,12 @@ jobs:
         with:
           workspaces: linux/src-tauri -> target
           cache-on-failure: true
+      - uses: actions/cache/restore@v4
+        id: swift-cache
+        with:
+          path: .build
+          key: windows-2022-swift-6.2.1-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/AfterglowCoreTests/**') }}
+          restore-keys: windows-2022-swift-6.2.1-
       - name: Shared Swift core checks
         run: |
           swift run CoreChecks
@@ -102,3 +108,8 @@ jobs:
           name: afterglow-windows-x86_64-preview
           path: windows/test-results/
           if-no-files-found: warn
+      - uses: actions/cache/save@v4
+        if: always() && steps.swift-cache.outputs.cache-hit != 'true'
+        with:
+          path: .build
+          key: ${{ steps.swift-cache.outputs.cache-primary-key }}

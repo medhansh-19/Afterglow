@@ -11,11 +11,16 @@ impl Apartment {
     pub fn new() -> Result<Self, String> {
         use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
         let result = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        match result { Ok(()) => Ok(Self(true)), Err(error) => Err(format!("Windows runtime initialization failed: {error}")) }
+        match result {
+            Ok(()) => Ok(Self(true)),
+            Err(error) => Err(format!("Windows runtime initialization failed: {error}")),
+        }
     }
 }
 impl Drop for Apartment {
     fn drop(&mut self) {
-        if self.0 { unsafe { windows::Win32::System::WinRT::RoUninitialize() } }
+        if self.0 {
+            unsafe { windows::Win32::System::WinRT::RoUninitialize() }
+        }
     }
 }

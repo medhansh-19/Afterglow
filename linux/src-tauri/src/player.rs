@@ -120,4 +120,4 @@ mod tests {
 }
 
 #[cfg(target_os = "windows")]
-pub use crate::windows::player::{players, control};
+pub use crate::windows::player::{control, players};

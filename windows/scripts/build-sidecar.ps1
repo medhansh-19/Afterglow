@@ -3,6 +3,18 @@ $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows lyric service on Windows.' }
 if ($TargetTriple -ne 'x86_64-pc-windows-msvc') { throw 'This preview packages Windows x64 only.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+function Get-PeMachine([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $reader = [IO.BinaryReader]::new($stream)
+    try {
+        if ($reader.ReadUInt16() -ne 0x5a4d) { return 0 }
+        $stream.Position = 0x3c
+        $offset = $reader.ReadUInt32()
+        $stream.Position = $offset
+        if ($reader.ReadUInt32() -ne 0x00004550) { return 0 }
+        return $reader.ReadUInt16()
+    } finally { $reader.Dispose() }
+}
 Push-Location $repo
 try {
     swift build -c release --product afterglow-lyrics
@@ -10,6 +22,7 @@ try {
     $bin = (swift build -c release --show-bin-path | Select-Object -Last 1).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot locate the Swift build output.' }
     $binary = Join-Path $bin 'afterglow-lyrics.exe'
+    if ((Get-PeMachine $binary) -ne 0x8664) { throw 'The lyric service must be a Windows x64 executable.' }
     $binaries = Join-Path $repo 'linux/src-tauri/binaries'
     $runtime = Join-Path $repo 'linux/src-tauri/runtime'
     New-Item -ItemType Directory -Force $binaries,$runtime | Out-Null
@@ -53,7 +66,9 @@ try {
             $_.Name -notmatch '^(?i:libclang|libLTO|LLVM|sourcekit|IndexStore|swiftScan|swiftSyntax)'
         } | ForEach-Object {
             $target = Join-Path $runtime $_.Name
-            if (-not (Test-Path $target)) { Copy-Item $_.FullName $target }
+            if ((Get-PeMachine $_.FullName) -eq 0x8664 -and -not (Test-Path $target)) {
+                Copy-Item $_.FullName $target
+            }
         }
     }
     if (-not (Test-Path (Join-Path $runtime 'swiftCore.dll'))) { throw 'Swift runtime DLLs were not found; refusing an incomplete package.' }
