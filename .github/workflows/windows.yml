@@ -1,0 +1,95 @@
+name: Windows preview
+on:
+  pull_request:
+    paths: ['windows/**', 'linux/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', '.github/workflows/windows.yml']
+  push:
+    branches: ['codex/windows-app']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: linux/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Swift 6.2.1 for Windows
+        uses: compnerd/gha-setup-swift@57fe462cd3c7b05ae8fcff79b00719312e305257
+        with:
+          swift-version: swift-6.2.1-release
+          swift-build: 6.2.1-RELEASE
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux/src-tauri -> target
+          cache-on-failure: true
+      - name: Shared Swift core checks
+        run: |
+          swift run CoreChecks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and stage the Windows lyric service
+        run: |
+          swift build -c release --product afterglow-lyrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./windows/scripts/build-sidecar.ps1
+      - name: Shared lyric service protocol checks
+        env:
+          AFTERGLOW_LYRICS_BINARY: linux/src-tauri/binaries/afterglow-lyrics-x86_64-pc-windows-msvc.exe
+          PYTHONUTF8: '1'
+        run: |
+          python linux/tests/service.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared and Windows frontend checks
+        run: |
+          npm ci --prefix linux
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test --prefix linux
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test windows/tests/*.test.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix linux
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows native unit checks
+        run: |
+          cargo test --locked --manifest-path linux/src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Collect bundled dependency notices
+        run: |
+          python linux/scripts/collect-notices.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Windows installer
+        working-directory: linux
+        run: |
+          npm run tauri -- build --config ../../windows/tauri.windows.conf.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage preview packages and instructions
+        if: always()
+        run: |
+          $destination = 'windows/test-results/packages'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          Get-ChildItem 'linux/src-tauri/target/release/bundle' -Recurse -File -Include *.exe,*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
+          Copy-Item windows/README.md,windows/PLAN.md,windows/PARITY.md,windows/VALIDATION.md -Destination $destination -ErrorAction Continue
+          Get-ChildItem $destination -File -Include *.exe,*.msi | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content "$destination/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/test-results/
+          if-no-files-found: warn
