@@ -1,5 +1,8 @@
 name: Windows installed preview
 on:
+  push:
+    branches: [codex/windows-app]
+    paths: [.github/workflows/windows-installed.yml]
   workflow_dispatch:
     inputs:
       run_id:
@@ -19,7 +22,7 @@ jobs:
           name: afterglow-windows-x86_64-preview
           path: windows/download
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ inputs.run_id || '42674498927' }}
       - name: Install and validate without Swift installed
         shell: pwsh
         run: |
