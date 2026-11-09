@@ -16,6 +16,8 @@ $log = Join-Path $OutputDirectory 'native.log'
 Remove-Item $log -Force -ErrorAction SilentlyContinue
 $originalPath = $env:PATH
 $originalLog = $env:AFTERGLOW_SMOKE_LOG
+$originalBrowserArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--force-renderer-accessibility'
 # Neither the Swift development toolchain nor the build directory may satisfy DLL loading.
 $cleanPath = @("$env:SystemRoot/system32", $env:SystemRoot, "$env:SystemRoot/System32/Wbem") -join ';'
 $env:PATH = $cleanPath
@@ -156,4 +158,5 @@ public static class AfterglowSmokeWindow {
   if ($application -and -not $application.HasExited) { Stop-Process -Id $application.Id -Force -ErrorAction SilentlyContinue }
   $env:PATH = $originalPath
   $env:AFTERGLOW_SMOKE_LOG = $originalLog
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $originalBrowserArguments
 }
