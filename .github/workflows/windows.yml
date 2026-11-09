@@ -11,6 +11,40 @@ concurrency:
   group: windows-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
+  frontend-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: linux/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --prefix linux
+      - run: pip install playwright
+      - run: python -m playwright install --with-deps chromium
+      - name: Exercise Windows shared UI and capture lifecycle
+        env:
+          AFTERGLOW_TEST_OUTPUT: windows/test-results/browser
+        run: |
+          npm run dev --prefix linux > /tmp/afterglow-vite.log 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:1420/ > /dev/null; then break; fi
+            sleep 1
+          done
+          python windows/tests/ui.py
+          python windows/tests/regressions-ui.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-browser-regressions
+          path: windows/test-results/browser
   windows:
     runs-on: windows-2025
     timeout-minutes: 60

@@ -75,6 +75,8 @@ export function renderer(canvas, graph, clock) {
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
     const mesh = ribbonMesh({
+      width: w,
+      height: h,
       phase,
       energy,
       bands: audio.bands || [],
@@ -86,8 +88,7 @@ export function renderer(canvas, graph, clock) {
     mesh.forEach((points, i) => {
       ctx.beginPath();
       points.forEach((p, j) => {
-        const x = (p.x / 1400) * w,
-          y = h * 0.55 + ((p.y - 300) / 600) * h * 0.65;
+        const x = p.x, y = p.y;
         j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       });
       ctx.globalAlpha = (line.words.length ? 0.18 : 0.6) * (i === 8 ? 1 : 0.45);

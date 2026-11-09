@@ -40,3 +40,10 @@ The harness uses `AFTERGLOW_SMOKE_LOG` only as optional diagnostic evidence. Wit
 5. Exercise global shortcut conflict, success, disable/re-enable and focused alternatives. Native clipboard should paste into Paint; native PNG dialogs should save/cancel correctly.
 6. Compare long/RTL lyrics, every clock/marker/emoji, scene restoration, collection color scope, cards and map appearance against the current Mac version. Check [PARITY.md](PARITY.md) for missing features rather than treating them as passed.
 7. Measure actual power usage on battery/battery-saver and physical suspend/resume. Hardware claims require these measurements.
+
+
+## Windows 0.1.1 fixes
+
+Portable regression checks cover full-width waves at 640×480, 1920×1080, 3440×1440, 1080×1920 and 3840×2160, reduced-motion geometry, Mac-derived glass colors and notification expiry/replacement/interaction/dismissal. `windows/tests/regressions-ui.py` exercises the actual UI with a mocked native boundary: capture while Controls stays open, pause/resume, track changes, stop-before-stream-switch, capture failure/retry, notices and live effective-color updates. These tests do not certify WASAPI hardware or real-player audio isolation. Existing Windows UI checks continue to exercise preferences, exports and recovery.
+
+The Windows native adapter now requests event-driven process-loopback samples and lets Windows select the buffer size. The official reference is [Microsoft's ApplicationLoopback sample](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/ApplicationLoopback/cpp/LoopbackCapture.cpp). Installed-app CI and native compilation must pass before publishing the 0.1.1 installer. Real Spotify/Apple Music and physical-device audio testing remain the acceptance items above.
