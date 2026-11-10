@@ -236,7 +236,19 @@ export function renderer(canvas, graph, clock) {
       }
       if (screenshot) {
         const base = canvas.getBoundingClientRect();
-        for (const node of [clock, document.querySelector("#title"), document.querySelector("#artist"), document.querySelector("#time"), document.querySelector("#duration")]) {
+        const clockSvg = clock.querySelector("svg");
+        if (clockSvg) {
+          const copy = clockSvg.cloneNode(true), bounds = clock.getBoundingClientRect();
+          copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          copy.setAttribute("width", String(bounds.width)); copy.setAttribute("height", String(bounds.height));
+          copy.style.color = getComputedStyle(clock).color;
+          const image = new Image(), url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], {type:"image/svg+xml"}));
+          try {
+            await new Promise((resolve,reject) => { image.onload=resolve; image.onerror=()=>reject(Error("Screenshot clock could not be rendered.")); image.src=url; });
+            c.drawImage(image,bounds.left-base.left,bounds.top-base.top,bounds.width,bounds.height);
+          } finally { URL.revokeObjectURL(url); }
+        }
+        for (const node of [clockSvg ? null : clock, document.querySelector("#title"), document.querySelector("#artist"), document.querySelector("#time"), document.querySelector("#duration")]) {
           if (!node || !node.textContent || node.hidden) continue;
           const bounds = node.getBoundingClientRect(), style = getComputedStyle(node);
           c.fillStyle = style.color;
