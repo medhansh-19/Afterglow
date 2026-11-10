@@ -232,12 +232,8 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             )
             .map_err(|e| e.to_string())?;
         }
-        wallpaper
-            .set_size(tauri::PhysicalSize::new(screen.width, screen.height))
-            .map_err(|e| e.to_string())?;
-        wallpaper
-            .set_ignore_cursor_events(true)
-            .map_err(|e| e.to_string())?;
+        // Keep native styles after attachment. Tao's visibility/cursor setters
+        // rebuild GWL_STYLE from their original top-level flags and erase WS_CHILD.
         Ok(())
     })();
     if outcome.is_err() {
@@ -318,7 +314,12 @@ pub fn ready(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
         .is_some_and(|l| l.labels.iter().any(|s| s == label))
     {
         if let Some(window) = app.get_webview_window(label) {
-            window.show().map_err(|e| e.to_string())?;
+            unsafe {
+                let _ = ShowWindow(
+                    HWND(window.hwnd().map_err(|e| e.to_string())?.0),
+                    SW_SHOWNOACTIVATE,
+                );
+            }
         }
     }
     Ok(())
@@ -336,7 +337,12 @@ pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
         return Ok(());
     }
     if let Some(window) = app.get_webview_window(label) {
-        window.show().map_err(|e| e.to_string())?;
+        unsafe {
+            let _ = ShowWindow(
+                HWND(window.hwnd().map_err(|e| e.to_string())?.0),
+                SW_SHOWNOACTIVATE,
+            );
+        }
     }
     if !current.ready.iter().any(|s| s == label) {
         current.ready.push(label.into());

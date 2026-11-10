@@ -262,7 +262,7 @@ public static class AfterglowSmokeWindow {
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count -gt $demoCount } 'Desktop demo did not load.'
     $baselinePixels = Capture-DesktopSignal
     Invoke-Button 'Desktop'
-    Wait-Until { (Get-Content $log -Raw).Contains('desktop-ready') -and [AfterglowSmokeWindow]::ValidateDesktop($application.Id) -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
+    Wait-Until { $reason = [AfterglowSmokeWindow]::ValidateDesktop($application.Id); if ($reason -ne $script:lastDesktopReason) { Write-Host ('Desktop validation: ' + $reason); $script:lastDesktopReason = $reason }; (Get-Content $log -Raw).Contains('desktop-ready') -and $reason -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
     if ($baselinePixels -gt 40) {
       Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20
