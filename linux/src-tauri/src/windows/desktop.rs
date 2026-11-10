@@ -183,7 +183,7 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
                 screen.bottom_inset
             ))
             .build()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Desktop view creation failed: {e}"))?;
     let outcome = (|| -> Result<(), String> {
         let native = HWND(wallpaper.hwnd().map_err(|e| e.to_string())?.0);
         unsafe {
