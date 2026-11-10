@@ -7,8 +7,10 @@ entitlements="$2"
 sign_bundle() {
     local identity="$1"
     local runtime_args=(--options runtime)
-    # Ad-hoc CI candidates are development builds; production identities retain Hardened Runtime.
-    if [[ "$identity" == '-' ]]; then runtime_args=(); fi
+    # Local/ad-hoc certificates have no Apple Team ID for Library Validation.
+    # Explicitly clear runtime flags on development builds (including nested helpers).
+    # Developer ID distribution identities keep Hardened Runtime.
+    if [[ "$identity" == '-' || "${2:-}" == local ]]; then runtime_args=(--options 0); fi
     local framework="$app/Contents/Frameworks/Sparkle.framework"
     local base="$framework/Versions/B"
     if [[ -d "$framework" ]]; then
@@ -64,4 +66,4 @@ password="$(cat "$signing_dir/password")"
 security unlock-keychain -p "$password" "$keychain"
 fingerprint="$(security find-certificate -c "$identity" -Z "$keychain" | awk '/SHA-1 hash:/ {print $3; exit}')"
 # Select the certificate by hash, including self-signed local identities.
-sign_bundle "$fingerprint"
+sign_bundle "$fingerprint" local
