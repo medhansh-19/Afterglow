@@ -57,3 +57,25 @@ The Windows native adapter now requests event-driven process-loopback samples an
 - Installer SHA256: `f9a877d71ba2f2ced8ac83a668ebc4650e964bba6706b0a1676799967766e6c7`; 145,489,601 bytes. The downloadable filename is `Afterglow-windows-x64-setup.exe`.
 
 The optional installed-workflow upgrade fixture is pinned to the original build artifact and its SHA256, so changing the website's moving installer alias cannot silently change the baseline. Application code is identical to the tested source; subsequent commits contain acceptance-harness and validation records only. Windows real-player audio and physical hardware checks remain unverified as stated above.
+
+## Windows 0.2.1
+
+The Desktop button could deadlock WebView2 by building a new webview from a synchronous command. Windows desktop creation and recovery now run on a serialized worker; IPC awaits completion, while tray and shortcut entry points dispatch to that worker. Linux retains GTK's main-thread context. The wallpaper waits for a complete first frame before hiding Controls.
+
+The footer follows the supplied Mac reference's font sizes and spacing. The main window opens maximized, the canvas uses the current viewport aspect ratio, and each desktop view uses its monitor's physical bounds and taskbar inset. Wallpaper timing and native audio consumption are independent of the hidden main window. Beat response remains active when ambient flow is off.
+
+A native test exposed `STATUS_HEAP_CORRUPTION` in capture activation: a Rust allocation was also owned by a `VT_BLOB` PROPVARIANT. The blob now uses COM allocation with a single owner. The real Windows process-loopback API is tested with the production audio format for three activation/start/stop cycles. This verifies native capture setup, not real Spotify/Apple Music signal or two-player isolation.
+
+Portable validation passes 33 JavaScript tests, the production Vite build, Windows/Linux browser workflows and desktop event/timing checks. Browser checks cover independent word timing, stale audio, ambient-flow-off beat response, state deltas, occluded startup and 16:9, 16:10, ultrawide, portrait, 4K and high-scaling layouts. The native event boundary is mocked in those browser checks. The strict static UI audit reports zero findings.
+
+Native desktop acceptance uses clearly identified modern Progman and legacy WorkerW fixtures on hosted Windows. These are actual Win32 windows in a separate process, with unchanged production discovery and IPC; they are not Explorer certification. Acceptance checks monitor bounds, parenting, click-through/non-activation styles, first-frame readiness, Controls restoration, host process loss/restart and cleanup. Framebuffer pixel checks are explicitly reported as unavailable if the hosted desktop cannot capture visible signal.
+
+- [Modern native fixture, clean installation and upgrade acceptance](https://github.com/medhansh-19/Afterglow/actions/runs/42800669606) passed on the signed 0.2.1 installer from build 42796089973. Visible pixels were verified. The library survived setup byte-for-byte, and saved color/clock preferences survived launch/restart.
+- [Legacy native fixture acceptance](https://github.com/medhansh-19/Afterglow/actions/runs/42801480080) passed against that same installer. Its report identifies `native-legacy-fixture` and `desktopPixelsVerified: true`.
+- Application source for that installer is `47d77c5fae3ec2508b5815f796c539f6f821f5e0`. Following commits only correct the hosted acceptance harness. The combined final workflow is [42801696737](https://github.com/medhansh-19/Afterglow/actions/runs/42801696737), source `37893e34051a95eee6249553a1900e09c27ee14f`.
+
+The hosted shell automatically restarted and sometimes won discovery ahead of a fixture. The harness now waits for its fixture's complete hierarchy, temporarily disables shell auto-restart only on hosted CI (restored in `finally`), and accurately reports a real Explorer selection rather than claiming fixture coverage. Earlier harness runs failed; their installers were not published as 0.2.1.
+
+The mode actions are inside Controls, leaving a single Controls button on the listening screen. Save screenshot exports the viewport's aspect ratio at 2× resolution; browser acceptance verifies the resulting 2400×1600 PNG for a 1200×800 surface. Lyric-map export's font fetch is now permitted by the packaged app's self-only content policy. Browser export is verified; native Save dialog/clipboard hardware acceptance remains separate.
+
+Windows 0.2.1 retains main's signed updater support. Existing 0.1.x copies require a manual bootstrap installation. Physical Windows 11 Explorer, real Spotify/Apple Music signal isolation, mixed-DPI hot-plug and physical suspend remain unverified; fixtures and native API tests do not certify that hardware behavior.
