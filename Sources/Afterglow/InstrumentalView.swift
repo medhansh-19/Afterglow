@@ -9,14 +9,18 @@ struct InstrumentalView: View {
   let tint: Color
   let reduceMotion: Bool
   var visible = true
+  @Environment(\.renderBudget) private var budget
+  @Environment(\.renderActive) private var active
+  @Environment(\.parentRenderTick) private var parentTick
   @State private var clock = WaveRenderClock()
 
   var body: some View {
     TimelineView(
-      .animation(minimumInterval: 1.0 / 30, paused: !playing || reduceMotion || !visible)
+      .animation(minimumInterval: budget.frameInterval,
+        paused: parentTick != nil || !playing || reduceMotion || !visible || !active)
     ) { timeline in
       let snapshot = clock.snapshot(
-        frame: frame, live: live, playing: playing && visible, reducedMotion: reduceMotion)
+        frame: frame, live: live, playing: playing && visible && active, reducedMotion: reduceMotion)
       Canvas(rendersAsynchronously: true) { context, size in
           guard visible else { return }
         let phase = reduceMotion ? 0 : snapshot.phase

@@ -42,8 +42,12 @@ final class DesktopMode: ObservableObject {
     }
     observe(NSWindow.didEnterFullScreenNotification, object: window) { $0.isTransitioning = false }
     observe(NSWindow.didChangeOcclusionStateNotification, object: window) { mode in
-      mode.isVisible = mode.window?.occlusionState.contains(.visible) == true
+      mode.updateVisibility()
     }
+    observe(NSWindow.didMiniaturizeNotification, object: window) { $0.updateVisibility() }
+    observe(NSWindow.didDeminiaturizeNotification, object: window) { $0.updateVisibility() }
+    observe(NSApplication.didHideNotification) { $0.updateVisibility() }
+    observe(NSApplication.didUnhideNotification) { $0.updateVisibility() }
     observe(NSApplication.didChangeScreenParametersNotification) { $0.fitDesktop() }
     observe(NSWindow.willCloseNotification, object: window) { mode in
       mode.restore(activate: false)
@@ -52,7 +56,14 @@ final class DesktopMode: ObservableObject {
       mode.returnToDesktop = false
       mode.desktopAfterFullScreenExit = false
       mode.window = nil
+      mode.isVisible = false
     }
+    updateVisibility()
+  }
+
+  private func updateVisibility() {
+    let visible = window?.occlusionState.contains(.visible) == true && window?.isMiniaturized != true
+    if isVisible != visible { isVisible = visible }
   }
 
   private func observe(

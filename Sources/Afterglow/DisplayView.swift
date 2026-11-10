@@ -5,15 +5,21 @@ import UniformTypeIdentifiers
 
 struct DisplayView: View {
   @ObservedObject var model: DisplayModel
+  @ObservedObject private var energy = EnergyMonitor.shared
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AppStorage("afterglow.tint") private var tintName = Tint.album.rawValue
   @AppStorage("afterglow.clock") private var showClock = true
+  @AppStorage("afterglow.clockStyle") private var clockStyle = "Minimal"
+  @AppStorage("afterglow.clockSize") private var clockSize = 1.0
   @AppStorage("afterglow.motion") private var motion = true
   @AppStorage("afterglow.estimatedWords") private var estimatedWords = true
+  @ObservedObject private var collections = SongCollections.shared
+  @AppStorage("afterglow.chorusMemory") private var chorusMemory = true
   @State private var showDock = false
   @State private var showTiming = false
   @State private var showBeats = false
   @State private var showImporter = false
+  @State private var sheetActive = false
   @State private var importTrack: Track?
   @AppStorage("afterglow.timedFallback") private var timedFallback = true
   @AppStorage("afterglow.plainFallback") private var plainFallback = true
@@ -24,16 +30,22 @@ struct DisplayView: View {
   @AppStorage("afterglow.backgroundOpacity") private var backgroundOpacity = 0.15
   @AppStorage("afterglow.marker") private var markerName = LyricMarker.diamond.rawValue
   @AppStorage("afterglow.markerEmoji") private var markerEmoji = "✨"
+  private var colorSelection: Binding<String> {
+    collections.colorSelection(for: model.track, fallback: $tintName)
+  }
   private var tint: Color {
-    if tintName == Tint.album.rawValue, let color = model.albumColor {
+    let name = colorSelection.wrappedValue
+    if name == Tint.album.rawValue, let color = model.albumColor {
       return Color(red: color.red, green: color.green, blue: color.blue)
     }
-    return (Tint(rawValue: tintName) ?? .album).color
+    return Tint.resolve(name)
   }
+  private var rendering: Bool { desktop.isVisible && energy.isAwake }
 
   var body: some View {
     GeometryReader { geometry in
-      TimelineView(.periodic(from: .now, by: model.playing && desktop.isVisible ? 1.0 / 30 : 0.5)) {
+      TimelineView(.animation(minimumInterval: energy.budget.frameInterval,
+        paused: !model.playing || !rendering || !model.connected)) {
         timeline in
         let position = model.position()
         ZStack {
@@ -42,12 +54,12 @@ struct DisplayView: View {
           } else {
           WallpaperBackground(image: appearance.image, opacity: backgroundOpacity).ignoresSafeArea()
           GlowFrame(
-            tint: tint, active: model.playing && desktop.isVisible,
+            tint: tint, active: model.playing && rendering,
             energy: beats.running ? beats.frame.level : 0,
             pulse: beats.running ? beats.frame.pulse : 0,
             reduceMotion: reduceMotion || !motion)
           VStack(spacing: 0) {
-            header(date: timeline.date)
+            header()
             Spacer(minLength: 8)
             if model.connected {
               performance(position: position, size: geometry.size)
@@ -71,12 +83,14 @@ struct DisplayView: View {
           .padding(.bottom, 35)
           }
         }
+        .environment(\.parentRenderTick, model.connected ? timeline.date : nil)
       }
     }
     .foregroundStyle(Theme.text)
     .tint(tint)
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: tint)
     .onAppear {
+      updateActivity()
       if !UserDefaults.standard.bool(forKey: "afterglow.v2121.wordProgressionRestored") {
         estimatedWords = true
         UserDefaults.standard.set(true, forKey: "afterglow.v2121.wordProgressionRestored")
@@ -85,6 +99,14 @@ struct DisplayView: View {
         tintName = Tint.album.rawValue
         UserDefaults.standard.set(true, forKey: "afterglow.v2.albumDefaultApplied")
       }
+    }
+    .onChange(of: rendering) { _, _ in updateActivity() }
+    .onChange(of: energy.budget) { _, _ in updateActivity() }
+    .onChange(of: model.playing) { _, _ in updateActivity() }
+    .onChange(of: beats.running) { _, _ in updateActivity() }
+    .onChange(of: panels.presented) { _, panel in
+      if panel == nil { sheetActive = false }
+      updateActivity()
     }
     .onChange(of: desktop.isQuiet) { _, enabled in
       if enabled {
@@ -99,18 +121,26 @@ struct DisplayView: View {
       beats.stop()
       showTiming = false
     }
-    .onReceive(
-      NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)
-    ) { _ in beats.stop() }
-    .onDisappear { beats.stop() }
+    .onDisappear {
+      model.setActivity(visible: false, awake: energy.isAwake, budget: energy.budget)
+      beats.stop()
+    }
     .sheet(item: $panels.presented) { panel in
+      Group {
       switch panel {
+      case .collections: SongCollectionsView(model: model, presented: $panels.presented)
       case .library: libraryView
       case .timing: timingControls
       case .beats: beatControls
+      case .clock: ClockSettings(lyricColor: tint)
       case .cards: LyricCardsView(model: model, presented: $panels.presented)
-      case .wallpaper: WallpaperSettings(appearance: appearance, tint: tint, presented: $panels.presented)
+      case .wallpaper: WallpaperSettings(appearance: appearance, model: model, beats: beats, source: model.source, albumImage: model.albumImage, artworkStatus: model.artworkStatus, tint: tint, presented: $panels.presented)
       }
+      }.modifier(RenderSurfaceActivity { active in
+        guard panels.presented == panel else { return }
+        sheetActive = active
+        updateActivity()
+      })
     }
     .onExitCommand {
       if desktop.isFocused { desktop.exitFocus() } else { DisplayWindow.exitFullScreen() }
@@ -131,6 +161,14 @@ struct DisplayView: View {
         .padding(.top, 28).padding(.trailing, 32)
       }
     }
+    .environment(\.renderBudget, energy.budget)
+    .environment(\.renderActive, rendering)
+  }
+
+  private func updateActivity() {
+    model.setActivity(visible: rendering || sheetActive, awake: energy.isAwake, budget: energy.budget)
+    let audioPreview = sheetActive && (panels.presented == .wallpaper || panels.presented == .beats)
+    beats.setActivity(active: (rendering || audioPreview) && model.playing)
   }
 
   private var missingLyricStatus: some View {
@@ -151,7 +189,7 @@ struct DisplayView: View {
       .padding(.horizontal, 20)
   }
 
-  private func header(date: Date) -> some View {
+  private func header() -> some View {
     HStack(alignment: .top) {
       if !desktop.isQuiet {
         Text("afterglow").font(.system(size: 17, weight: .medium, design: .rounded)).tracking(1)
@@ -162,12 +200,9 @@ struct DisplayView: View {
       }
       VStack(spacing: 4) {
         if showClock {
-          Text(date, format: .dateTime.hour().minute())
-            .font(.system(size: 29, weight: .ultraLight, design: .rounded)).monospacedDigit()
-          Text(date, format: .dateTime.weekday(.wide).day().month(.wide))
-            .font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.secondary)
+          LiveClockDisplay(lyricColor: tint)
         }
-      }.frame(height: 52)
+      }.frame(minHeight: 52)
       if !desktop.isQuiet {
         HStack(spacing: 10) {
           Button {
@@ -183,10 +218,9 @@ struct DisplayView: View {
           }
           Menu {
             Button("Wallpaper & lyric markers…") { panels.presented = .wallpaper }
-            Picker("Glow color", selection: $tintName) {
-              ForEach(Tint.allCases) { Text($0.rawValue).tag($0.rawValue) }
-            }
-            if tintName == Tint.album.rawValue { Text(model.artworkStatus) }
+            GlowColorMenuPicker(selection: colorSelection)
+            Button("More colors…") { panels.presented = .wallpaper }
+            if colorSelection.wrappedValue == Tint.album.rawValue { Text(model.artworkStatus) }
             Button("Beat sync…") {
               showBeats = true
               showDock = true
@@ -194,8 +228,11 @@ struct DisplayView: View {
             Button("Focus Mode — Hide Widgets & Stage Manager", systemImage: "viewfinder") {
               desktop.toggleFocus()
             }
+            Button("Collections & saved songs…") { panels.presented = .collections }
+            Toggle("Remember chorus arrangements", isOn: $chorusMemory)
             Button("Lyric library…") { panels.presented = .library }
             Toggle("Show clock", isOn: $showClock)
+            Button("Customize clock…") { panels.presented = .clock }
             Toggle("Animate word changes", isOn: $motion)
             Toggle("Estimate words when timestamps are missing", isOn: $estimatedWords)
             Divider()
@@ -216,30 +253,33 @@ struct DisplayView: View {
   }
 
   private func performance(position: Double, size: CGSize) -> some View {
-    VStack(spacing: 16) {
+    let clockHeight = showClock ? (clockStyle == "Minimal" ? 52.0 : 104.0) * min(1.4, max(0.7, clockSize)) : 52
+    let graphHeight = max(180, min(440, size.height * 0.48 - max(0, clockHeight - 52)))
+    return VStack(spacing: 16) {
       if !model.lines.isEmpty {
         let lyricPosition = position - model.timingDelay
         Constellation(
           lines: model.lines, position: lyricPosition, duration: model.track?.duration ?? 0,
           tint: tint, reduceMotion: reduceMotion || !motion, estimatedWords: estimatedWords,
           beatFrame: beats.frame, liveBeats: beats.running,
-          playing: model.playing && desktop.isVisible,
+          playing: model.playing && rendering,
           waveWidth: size.width, marker: LyricMarker(rawValue: markerName) ?? .diamond,
-          markerEmoji: markerEmoji
+          markerEmoji: markerEmoji, chorusMemory: chorusMemory ? model.chorusMemory : nil
         )
         .frame(
           width: min(1000, size.width - max(64, size.width * 0.18)),
-          height: max(180, min(440, size.height * 0.48)))
+          height: graphHeight)
+        .background(LyricMapCaptureAnchor(panels: panels, track: model.track))
         // Preserve the constellation's position without a repeated lyric caption.
         Color.clear.frame(height: 38).accessibilityHidden(true)
       } else {
         // The same audio-reactive visualizer stays on screen while lyrics are
         // loading, unavailable, or genuinely instrumental, in every display mode.
         InstrumentalView(
-          frame: beats.frame, live: beats.running, playing: model.playing && desktop.isVisible,
+          frame: beats.frame, live: beats.running, playing: model.playing && rendering,
           tint: tint, reduceMotion: reduceMotion || !motion
         )
-        .frame(width: size.width, height: max(180, min(440, size.height * 0.48)) + 54)
+        .frame(width: size.width, height: graphHeight + 54)
       }
     }
     .frame(maxWidth: .infinity)
@@ -283,6 +323,10 @@ struct DisplayView: View {
           .accessibilityLabel("Show playback controls")
           .help("Show playback controls (⌘K)")
           .keyboardShortcut("k", modifiers: .command)
+          Button { panels.presented = .collections } label: {
+            Image(systemName: "bookmark").frame(width: 38, height: 38)
+          }.buttonStyle(.plain).foregroundStyle(tint)
+            .accessibilityLabel("Collections and saved songs").help("Save this song or organize collections")
           .popover(isPresented: $showDock, arrowEdge: .bottom) {
             Group {
               if showBeats {
@@ -506,6 +550,11 @@ struct DisplayView: View {
         Text("Automatically using the closest recording (\(String(format: "%+.1f", duration - target.duration)) s). Timing may differ slightly; adjust Timing or choose another version below.")
           .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
+      Toggle("Remember chorus arrangements", isOn: $chorusMemory)
+      Text(model.chorusMemory.repeatedLineCount > 0
+        ? "Recognized \(model.chorusMemory.repeatedLineCount) returning lyric lines. Their first arrangements return with them."
+        : "Matching lyric passages reuse their first arrangements when they return.")
+        .font(.caption).foregroundStyle(.secondary)
       Toggle("Try Karalyr and NetEase for synced lyrics", isOn: $timedFallback)
       Toggle("Try lyrics.ovh when no lyric text is found", isOn: $plainFallback)
       Text(

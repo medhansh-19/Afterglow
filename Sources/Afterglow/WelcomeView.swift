@@ -7,6 +7,7 @@ struct WelcomeView: View {
   let demo: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.renderActive) private var visible
   @AppStorage("afterglow.motion") private var motion = true
   @State private var appeared = false
 
@@ -17,7 +18,7 @@ struct WelcomeView: View {
           .opacity(appeared ? 1 : 0)
           .animation(animateEntrance ? .easeOut(duration: 1.5) : nil, value: appeared)
         GlowFrame(appearance: .welcome, tint: Theme.rose,
-          active: scenePhase == .active,
+          active: scenePhase == .active && visible,
           reduceMotion: reduceMotion || !motion)
           .opacity(appeared ? 1 : 0)
           .animation(animateEntrance ? .easeInOut(duration: 1.8) : nil, value: appeared)
@@ -103,6 +104,8 @@ struct WelcomeView: View {
 private struct WelcomeNightSky: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.renderBudget) private var budget
+  @Environment(\.renderActive) private var visible
   @AppStorage("afterglow.motion") private var motion = true
 
   private struct Star {
@@ -129,8 +132,8 @@ private struct WelcomeNightSky: View {
   }()
 
   var body: some View {
-    let animate = !reduceMotion && motion && scenePhase == .active
-    TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !animate)) { timeline in
+    let animate = !reduceMotion && motion && scenePhase == .active && visible
+    TimelineView(.animation(minimumInterval: budget.ambientInterval, paused: !animate)) { timeline in
       let time = animate ? timeline.date.timeIntervalSinceReferenceDate : 0
       Canvas { context, size in
         for star in Self.stars {

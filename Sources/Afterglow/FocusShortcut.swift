@@ -13,6 +13,7 @@ final class FocusShortcut: ObservableObject {
   private let preferenceKey: String
   private let keyLabel: String
   private let actionLabel: String
+  private let actionVerb: String
   private var hotKey: EventHotKeyRef?
   private var handler: EventHandlerRef?
   private var action: (@MainActor () -> Void)?
@@ -20,12 +21,13 @@ final class FocusShortcut: ObservableObject {
 
   init(keyCode: UInt32 = UInt32(kVK_ANSI_F), identifier: UInt32 = 1,
        preferenceKey: String = "afterglow.globalFocusShortcut", keyLabel: String = "⇧⌘F",
-       actionLabel: String = "Focus") {
+       actionLabel: String = "Focus", actionVerb: String = "toggles") {
     self.keyCode = keyCode
     self.identifier = identifier
     self.preferenceKey = preferenceKey
     self.keyLabel = keyLabel
     self.actionLabel = actionLabel
+    self.actionVerb = actionVerb
     isEnabled = UserDefaults.standard.object(forKey: preferenceKey) as? Bool ?? true
   }
 
@@ -37,6 +39,11 @@ final class FocusShortcut: ObservableObject {
   static func beatSync() -> FocusShortcut {
     .init(keyCode: UInt32(kVK_ANSI_B), identifier: 3,
           preferenceKey: "afterglow.globalBeatShortcut", keyLabel: "⇧⌘B", actionLabel: "Beat Sync")
+  }
+
+  static func appearance() -> FocusShortcut {
+    .init(keyCode: UInt32(kVK_ANSI_A), identifier: 4,
+          preferenceKey: "afterglow.globalAppearanceShortcut", keyLabel: "⇧⌘A", actionLabel: "Appearance", actionVerb: "opens")
   }
 
   func configure(action: @escaping @MainActor () -> Void) {
@@ -85,7 +92,7 @@ final class FocusShortcut: ObservableObject {
     isRegistered = result == noErr
     status =
       isRegistered
-      ? "\(keyLabel) toggles \(actionLabel) from any app."
+      ? "\(keyLabel) \(actionVerb) \(actionLabel) from any app."
       : "\(keyLabel) is unavailable. Release it in the other app, then toggle this setting again."
   }
 
@@ -107,6 +114,7 @@ struct FocusShortcutSetup: ViewModifier {
   @ObservedObject var shortcut: FocusShortcut
   @ObservedObject var desktopShortcut: FocusShortcut
   @ObservedObject var beatShortcut: FocusShortcut
+  @ObservedObject var appearanceShortcut: FocusShortcut
   let desktop: DesktopMode
   let beats: BeatCapture
   let model: DisplayModel
@@ -155,6 +163,13 @@ struct FocusShortcutSetup: ViewModifier {
           return
         }
         Task { await beats.start(source: source) }
+      }
+      appearanceShortcut.configure {
+        if desktop.isEnabled { desktop.restore() }
+        openWindow(id: "display")
+        NSApp.activate(ignoringOtherApps: true)
+        desktop.window?.makeKeyAndOrderFront(nil)
+        panels.presented = .wallpaper
       }
       delegate.reopen = {
         guard desktop.isEnabled else { return true }

@@ -33,7 +33,7 @@ final class WallpaperAppearance: ObservableObject {
       clock: d.object(forKey: "afterglow.clock") as? Bool ?? true,
       motion: d.object(forKey: "afterglow.motion") as? Bool ?? true,
       estimatedWords: d.object(forKey: "afterglow.estimatedWords") as? Bool ?? true,
-      wallpaper: imageData)
+      wallpaper: imageData, clockAppearance: ClockPreferences.read(from: d))
   }
   private func apply(_ value: SongAppearance) {
     let d = defaults
@@ -42,6 +42,7 @@ final class WallpaperAppearance: ObservableObject {
     d.set(value.marker, forKey: "afterglow.marker")
     d.set(value.emoji, forKey: "afterglow.markerEmoji")
     d.set(value.clock, forKey: "afterglow.clock")
+    ClockPreferences.write(value.clockAppearance ?? ClockAppearance(), to: d)
     d.set(value.motion, forKey: "afterglow.motion")
     d.set(value.estimatedWords, forKey: "afterglow.estimatedWords")
     imageData = value.wallpaper
@@ -244,100 +245,246 @@ struct MarkerShape: Shape {
   }
 }
 
+/// Static, seeded pinpoints keep the appearance sheet quiet and inexpensive.
+struct AppearanceNightSky: View {
+  let tint: Color
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @AppStorage("afterglow.motion") private var motion = true
+  var body: some View {
+    LinearGradient(colors: Theme.appearanceSkyColors(for: tint),
+                   startPoint: .top, endPoint: .bottom)
+      .overlay {
+        Canvas { context, size in
+          for i in 0..<65 {
+            let x = (Double(i) * 137.47 + 23).truncatingRemainder(dividingBy: max(1, size.width))
+            let y = (Double(i) * 83.29 + 19).truncatingRemainder(dividingBy: max(1, size.height))
+            let diameter = i % 11 == 0 ? 1.4 : 0.75
+            context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: diameter, height: diameter)),
+                         with: .color(.white.opacity(i % 11 == 0 ? 0.30 : 0.12)))
+          }
+        }
+      }.animation(reduceMotion || !motion ? nil : .easeInOut(duration: 0.65), value: tint)
+      .allowsHitTesting(false).accessibilityHidden(true)
+  }
+}
+
 struct WallpaperSettings: View {
+  @Environment(\.renderBudget) private var budget
+  @Environment(\.renderActive) private var active
+  @AppStorage("afterglow.chorusMemory") private var chorusMemory = true
+  @ObservedObject var collections: SongCollections = .shared
   @ObservedObject var appearance: WallpaperAppearance
+  @ObservedObject var model: DisplayModel
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @AppStorage("afterglow.estimatedWords") private var estimatedWords = true
+  @ObservedObject var beats: BeatCapture
+  let source: PlayerSource?
+  let albumImage: NSImage?
+  let artworkStatus: String
   let tint: Color
   @Binding var presented: DisplayPanels.Panel?
+  @State private var showClockSettings = false
   @AppStorage("afterglow.tint") private var tintName = Tint.album.rawValue
   @AppStorage("afterglow.clock") private var showClock = true
   @AppStorage("afterglow.motion") private var motion = true
   @AppStorage("afterglow.backgroundOpacity") private var opacity = 0.15
   @AppStorage("afterglow.marker") private var markerName = LyricMarker.diamond.rawValue
   @AppStorage("afterglow.markerEmoji") private var emoji = "✨"
+  private var colorSelection: Binding<String> {
+    collections.colorSelection(for: model.track, fallback: $tintName)
+  }
+  private var albumColor: Color {
+    model.albumColor.map { Color(red: $0.red, green: $0.green, blue: $0.blue) } ?? Tint.rose.color
+  }
   private var marker: LyricMarker { LyricMarker(rawValue: markerName) ?? .diamond }
-
+  private var beatEnabled: Binding<Bool> {
+    Binding(get: { beats.running || beats.starting }, set: { enabled in
+      if enabled, let source { Task { await beats.start(source: source) } }
+      else { beats.stop() }
+    })
+  }
   var body: some View {
-    ScrollView {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 20) {
       HStack {
-        Text("Appearance & Wallpaper").font(.title2)
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Make it yours").font(.system(size: 24, weight: .semibold))
+          Text("A little color. A little atmosphere.").font(.system(size: 12)).foregroundStyle(.secondary)
+        }
         Spacer()
-        Button("Done") { presented = nil }.keyboardShortcut(.defaultAction)
+        Text("afterglow").font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
       }
+      ScrollView {
+        HStack(alignment: .top, spacing: 24) {
+          wallpaperColumn.frame(width: 256)
+          controlsColumn.frame(maxWidth: .infinity)
+        }.padding(.bottom, 4)
+      }
+      Divider().overlay(.white.opacity(0.08))
+      HStack(spacing: 12) {
+        Spacer()
+        Button("Reset") {
+          colorSelection.wrappedValue = Tint.album.rawValue; showClock = true; motion = true
+          opacity = 0.15; markerName = LyricMarker.diamond.rawValue; emoji = "✨"
+          ClockPreferences.write(ClockAppearance())
+        }.help("Reset color, clock, animation, opacity and lyric markers. Keeps your wallpaper and saved colors.")
+        Button("Done") { presented = nil }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent).tint(Color.accentColor)
+      }
+    }
+    .font(.system(size: 13)).padding(24).frame(width: 800, height: 700)
+    .background(AppearanceNightSky(tint: tint)).preferredColorScheme(.dark)
+    .buttonStyle(.bordered).tint(.white)
+    .onExitCommand { presented = nil }
+  }
+  private var wallpaperColumn: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      preview
       HStack {
-        Picker("Glow color", selection: $tintName) {
-          ForEach(Tint.allCases) { Text($0.rawValue).tag($0.rawValue) }
-        }
-        Toggle("Show clock", isOn: $showClock)
+        Text("Wallpaper").fontWeight(.semibold)
+        Spacer()
+        Text(appearance.image == nil ? "Black sky" : "Your image").font(.system(size: 11)).foregroundStyle(.secondary)
       }
-      Toggle("Animate word changes", isOn: $motion)
-      ZStack {
-        WallpaperBackground(image: appearance.image, opacity: opacity)
-        VStack(spacing: 14) {
-          Text("Your music. Your backdrop.").font(.title3).foregroundStyle(tint)
-          HStack(spacing: 0) {
-            ForEach(0..<5) { _ in
-              MarkerSymbol(marker: marker, emoji: emoji, tint: tint)
-              Rectangle().fill(tint.opacity(0.4)).frame(width: 32, height: 1)
-            }
-            MarkerSymbol(marker: marker, emoji: emoji, tint: tint)
-          }
-        }
-      }
-      .frame(height: 170).clipShape(RoundedRectangle(cornerRadius: 12))
-      .accessibilityLabel("Wallpaper and lyric marker preview")
-      HStack {
-        Button(appearance.image == nil ? "Choose Image…" : "Replace Image…") { appearance.chooseImage() }
-        Button("Remove Image") { appearance.removeImage() }.disabled(appearance.image == nil)
-        if appearance.loading { ProgressView().controlSize(.small); Text("Preparing image…") }
+      HStack(spacing: 8) {
+        Button(appearance.image == nil ? "Choose image…" : "Replace…") { appearance.chooseImage() }
+        Button("Remove") { appearance.removeImage() }.disabled(appearance.image == nil)
       }.disabled(appearance.loading)
-      VStack(alignment: .leading, spacing: 8) {
+      if appearance.loading { ProgressView("Preparing image…").controlSize(.small) }
+      VStack(spacing: 8) {
         HStack {
-          Text("Image opacity")
+          Text("Opacity")
           Spacer()
           Text("\(Int(opacity * 100))%").monospacedDigit()
-        }
+        }.font(.system(size: 12)).foregroundStyle(.secondary)
         Slider(value: $opacity, in: 0...1, step: 0.01) { Text("Image opacity") }
-          .labelsHidden()
-          .disabled(appearance.image == nil)
-        Text("Start low for a subtle backdrop. 0% is black; 100% shows the full image.")
-          .font(.caption).foregroundStyle(.secondary)
+          .labelsHidden().disabled(appearance.image == nil)
       }
       Divider()
-      Picker("Lyric marker", selection: $markerName) {
-        ForEach(LyricMarker.allCases) { Text($0.rawValue).tag($0.rawValue) }
-      }
-      if marker == .emoji {
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Keep this song’s mood").fontWeight(.medium)
+        Text(appearance.sceneTrack.map { "Save these visuals for \($0.title)." } ?? "Play a song to save its scene.")
+          .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         HStack {
-          TextField("Custom emoji", text: $emoji).frame(width: 150)
+          Button(appearance.hasScene ? "Update song scene" : "Save song scene") { appearance.saveScene() }
+            .disabled(appearance.sceneTrack == nil || appearance.loading)
+          if appearance.hasScene { Button("Remove scene") { appearance.removeScene() } }
+        }
+        if let message = appearance.sceneMessage {
+          Text(message).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      if let error = appearance.error { Text(error).foregroundStyle(Theme.amber).font(.caption) }
+    }
+  }
+  private var controlsColumn: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      if let track = model.track, let collection = collections.library.colorCollection(for: track),
+        collection.lyricColor != nil {
+        VStack(alignment: .leading, spacing: 6) {
+          Text("Editing \(collection.name)’s lyric color. Applies to all songs using this collection.")
+            .font(.caption).foregroundStyle(.secondary)
+          Button("Edit collection color…") { presented = .collections }
+        }
+      } else {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(appearance.hasScene ? "Editing this song’s scene color." : "Editing your default lyric color.")
+            .font(.caption).foregroundStyle(.secondary)
+          if let track = model.track, !collections.library.collections.contains(where: { $0.contains(track) }) {
+            Button("Save this song to a collection…") { presented = .collections }
+          }
+        }
+      }
+      GlowColorSelector(selection: colorSelection, albumColor: albumColor, albumImage: albumImage, artworkStatus: artworkStatus)
+      if let error = collections.error {
+        Text(error).font(.caption).foregroundStyle(Theme.amber)
+      }
+      Divider()
+      Text("On your screen").fontWeight(.semibold)
+      VStack(spacing: 12) {
+        HStack {
+          Text("Clock")
+          Button("Customize…") { showClockSettings = true }
+            .popover(isPresented: $showClockSettings) { ClockSettings(lyricColor: tint) }
+          Spacer()
+          Toggle("Show clock", isOn: $showClock).labelsHidden().tint(Color.accentColor)
+        }
+        appearanceToggle("Animate word changes", isOn: $motion)
+        appearanceToggle("Beat sync", isOn: beatEnabled)
+          .disabled(source == nil).help(source == nil ? "Connect a player to enable beat sync." : beats.state)
+        if beats.starting { ProgressView("Connecting audio…").controlSize(.small) }
+        if beats.permissionRequired {
+          Button("Allow audio in System Settings…") { beats.openPermissionSettings() }
+        }
+        if !beats.running && !beats.starting && beats.state != "Ambient motion" {
+          Text(beats.state).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        HStack {
+          Text("Lyric marker")
+          Spacer()
+          Picker("Lyric marker", selection: $markerName) {
+            ForEach(LyricMarker.allCases) { Text($0.rawValue).tag($0.rawValue) }
+          }.labelsHidden().fixedSize()
+        }
+        if marker == .emoji {
+          TextField("Custom emoji", text: $emoji).textFieldStyle(.roundedBorder)
             .onChange(of: emoji) { _, value in
-              let first = String(value.prefix(1))
-              if emoji != first { emoji = first }
+              let first = String(value.prefix(1)); if emoji != first { emoji = first }
             }
-          Menu("Suggestions") {
-            ForEach(["✨", "⭐️", "❤️", "🔥", "🏎️", "🌙"], id: \.self) { value in
-              Button(value) { emoji = value }
+        }
+      }.toggleStyle(.switch).controlSize(.small)
+    }
+  }
+  private func appearanceToggle(_ title: String, isOn: Binding<Bool>) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).tint(Color.accentColor)
+    }
+  }
+  private var preview: some View {
+    TimelineView(.animation(minimumInterval: budget.previewInterval, paused: !model.playing || !active)) { timeline in
+      ZStack {
+        WallpaperBackground(image: appearance.image, opacity: opacity)
+        VStack(alignment: .leading, spacing: 8) {
+          HStack {
+            Text(model.playing ? "LIVE PREVIEW" : model.track == nil ? "PREVIEW" : "PAUSED PREVIEW")
+              .font(.system(size: 8, weight: .medium)).tracking(1.5)
+            Spacer()
+            Text("afterglow").font(.system(size: 8)).tracking(1)
+          }.foregroundStyle(.white.opacity(0.65))
+          GeometryReader { geometry in
+            let scale = geometry.size.width / 640
+            Group {
+              if !model.lines.isEmpty {
+                Constellation(lines: model.lines, position: model.position() - model.timingDelay,
+                  duration: model.track?.duration ?? 0, tint: tint,
+                  reduceMotion: reduceMotion || !motion, estimatedWords: estimatedWords,
+                  beatFrame: beats.frame, liveBeats: beats.running, playing: model.playing,
+                  marker: marker, markerEmoji: emoji, chorusMemory: chorusMemory ? model.chorusMemory : nil)
+              } else {
+                InstrumentalView(frame: beats.frame, live: beats.running, playing: model.playing,
+                  tint: tint, reduceMotion: reduceMotion || !motion)
+              }
+            }
+            .frame(width: 640, height: geometry.size.height / scale)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+          }
+          HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(model.track?.title ?? "Connect a player to preview")
+                .font(.system(size: 10, weight: .medium)).lineLimit(1)
+              Text(model.loading ? "Finding lyrics…" : model.track?.artist ?? "Your music, live.")
+                .font(.system(size: 9)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if showClock {
+              LiveClockDisplay(lyricColor: tint, previewScale: 0.32)
             }
           }
-          Text("One character or emoji").font(.caption).foregroundStyle(.secondary)
-        }
+        }.padding(16)
       }
-      if let error = appearance.error { Text(error).foregroundStyle(Theme.amber).font(.callout) }
-      Divider()
-      Text("Song-specific scene").font(.headline)
-      Text(appearance.sceneTrack.map { "Save this appearance for \($0.title)." } ?? "Play a song to save its scene.")
-        .font(.caption).foregroundStyle(.secondary)
-      HStack {
-        Button(appearance.hasScene ? "Update Scene" : "Save Scene for This Song") { appearance.saveScene() }
-          .disabled(appearance.sceneTrack == nil || appearance.loading)
-        if appearance.hasScene { Button("Remove Scene") { appearance.removeScene() } }
-      }
-      if let message = appearance.sceneMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
-      Text("Images stay on this Mac. These controls change the visuals; lyric timing uses your existing settings.")
-        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-    }
-    .padding(26)
-    }.frame(width: 540, height: 590).preferredColorScheme(.dark)
-    .onExitCommand { presented = nil }
+      .environment(\.parentRenderTick, timeline.date)
+    }.frame(height: 232).clipShape(RoundedRectangle(cornerRadius: 16))
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Live preview of current song")
   }
 }

@@ -14,6 +14,8 @@ struct Constellation: View {
   var waveWidth: Double? = nil
   var marker: LyricMarker = .diamond
   var markerEmoji: String = "✨"
+  var chorusMemory: ChorusMemory? = nil
+  @State private var pageCache = LyricPageCache()
 
   var body: some View {
     GeometryReader { geometry in
@@ -23,7 +25,7 @@ struct Constellation: View {
       let end = index.map { $0 + 1 < lines.count ? lines[$0 + 1].time : duration } ?? duration
       let vocal = line.map { position < min(end, $0.end ?? end) } ?? false
       let page = line.map {
-        LyricWordPage.resolve(line: $0, at: position, nextLineTime: end, estimated: estimatedWords)
+        pageCache.resolve(line: $0, at: position, nextLineTime: end, estimated: estimatedWords)
       }
       let lineFocus = vocal && line?.words.isEmpty != false && !estimatedWords
       ZStack {
@@ -42,7 +44,8 @@ struct Constellation: View {
         if let line, let page, !page.words.isEmpty {
           LyricGraph(
             words: page.words, active: page.activeIndex, lineFocus: lineFocus, tint: tint,
-            reduceMotion: reduceMotion, size: geometry.size, marker: marker, markerEmoji: markerEmoji
+            reduceMotion: reduceMotion, size: geometry.size, marker: marker, markerEmoji: markerEmoji,
+            layoutSeed: chorusMemory?.layoutSeed(for: index ?? 0, pageStart: page.range.lowerBound)
           ).equatable().id(line.id)
         }
       }
@@ -55,6 +58,20 @@ struct Constellation: View {
 
 }
 
+/// A single current line per renderer keeps memory bounded and invalidates on text/timing edits.
+@MainActor
+private final class LyricPageCache {
+  private var line: LyricLine?
+  private var prepared: LyricWordPage.Prepared?
+  func resolve(line: LyricLine, at position: Double, nextLineTime: Double, estimated: Bool) -> LyricWordPage {
+    if self.line != line {
+      self.line = line
+      prepared = LyricWordPage.Prepared(line: line)
+    }
+    return prepared!.resolve(at: position, nextLineTime: nextLineTime, estimated: estimated)
+  }
+}
+
 private struct LyricGraph: View, Equatable {
   let words: [String]
   let active: Int?
@@ -64,6 +81,7 @@ private struct LyricGraph: View, Equatable {
   let size: CGSize
   let marker: LyricMarker
   let markerEmoji: String
+  let layoutSeed: Int?
   var body: some View {
     let points = layout(count: words.count, size: size)
     ZStack {
@@ -137,6 +155,11 @@ private struct LyricGraph: View, Equatable {
     guard count > 0 else { return [] }
     let columns = min(count, count > 12 ? 6 : 4)
     let rows = Int(ceil(Double(count) / Double(columns)))
+    // Small column-height variations give passages their own silhouette without
+    // moving words out of reading order or reducing label spacing.
+    let variant = layoutSeed.map { abs($0 % 5) } ?? 0
+    let direction = variant % 2 == 0 ? 1.0 : -1.0
+    let amplitude = layoutSeed == nil ? 1.0 : 0.65 + Double(variant) * 0.13
     return (0..<count).map { i in
       let row = i / columns
       let col = i % columns
@@ -145,7 +168,7 @@ private struct LyricGraph: View, Equatable {
       let rowHeight = size.height / Double(max(2, rows))
       let y =
         size.height / 2 + (Double(row) - Double(rows - 1) / 2) * rowHeight * 0.8
-        + (col % 2 == 0 ? -1.0 : 1.0) * min(rowHeight * 0.22, 42)
+        + (col % 2 == 0 ? -1.0 : 1.0) * direction * min(rowHeight * 0.22, 42) * amplitude
       return CGPoint(x: x, y: y)
     }
   }

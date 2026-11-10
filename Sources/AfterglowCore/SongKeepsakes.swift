@@ -18,11 +18,13 @@ public struct SongAppearance: Codable, Equatable, Sendable {
   public var motion: Bool
   public var estimatedWords: Bool
   public var wallpaper: Data?
+  public var clockAppearance: ClockAppearance?
   public init(tint: String, opacity: Double, marker: String, emoji: String, clock: Bool,
-              motion: Bool, estimatedWords: Bool, wallpaper: Data?) {
+              motion: Bool, estimatedWords: Bool, wallpaper: Data?, clockAppearance: ClockAppearance? = nil) {
     self.tint = tint; self.opacity = min(1, max(0, opacity)); self.marker = marker
     self.emoji = String(emoji.prefix(1)); self.clock = clock; self.motion = motion
     self.estimatedWords = estimatedWords; self.wallpaper = wallpaper
+    self.clockAppearance = clockAppearance
   }
 }
 

@@ -9,13 +9,17 @@ struct GlowFrame: View {
   var energy: Double = 0
   var pulse: Double = 0
   var reduceMotion = false
+  @Environment(\.renderBudget) private var budget
+  @Environment(\.renderActive) private var visible
+  @Environment(\.parentRenderTick) private var parentTick
   @State private var clock = BorderRenderClock()
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !active || reduceMotion)) {
+    TimelineView(.animation(minimumInterval: budget.ambientInterval,
+      paused: parentTick != nil || !active || reduceMotion || !visible)) {
       timeline in
       let snapshot = clock.snapshot(
-        energy: energy, pulse: pulse, active: active, reducedMotion: reduceMotion)
+        energy: energy, pulse: pulse, active: active && visible, reducedMotion: reduceMotion)
       GeometryReader { geometry in
         let rect = CGRect(origin: .zero, size: geometry.size).insetBy(dx: 16, dy: 16)
         let radius = min(Theme.radius, min(rect.width, rect.height) / 2)
