@@ -104,6 +104,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix linux
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Start Windows audio services for real loopback acceptance
+        run: |
+          Set-Service AudioEndpointBuilder -StartupType Manual
+          Set-Service Audiosrv -StartupType Manual
+          Start-Service AudioEndpointBuilder
+          Start-Service Audiosrv
       - name: Windows native unit checks
         run: |
           $env:TAURI_CONFIG = Get-Content windows/tauri.windows.conf.json -Raw
