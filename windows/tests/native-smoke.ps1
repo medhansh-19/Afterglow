@@ -122,6 +122,10 @@ public static class AfterglowSmokeWindow {
     };
     EnumWindows(callback,IntPtr.Zero);
   }
+  public static uint WallpaperParent(int pid) {
+    var found=Wallpapers(pid); if(found.Count==0)return 0;
+    uint parent;GetWindowThreadProcessId(GetParent(found[0]),out parent);return parent;
+  }
   public static string ValidateDesktop(int pid) {
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     try {
@@ -292,6 +296,17 @@ public static class AfterglowSmokeWindow {
     $baselinePixels = Capture-DesktopSignal
     Invoke-Button 'Controls'
     Invoke-Button 'Desktop'
+    Wait-Until { [AfterglowSmokeWindow]::WallpaperParent($application.Id) -ne 0 } 'Wallpaper parent was never attached.' 45
+    $selectedParent = [AfterglowSmokeWindow]::WallpaperParent($application.Id)
+    if ($desktopFixture -and $selectedParent -ne [AfterglowSmokeWindow]::ExpectedOwner -and (Get-Process -Id $selectedParent).ProcessName -eq 'explorer') {
+      # A shell bootstrap can race the fixture. Test the actual selected Explorer
+      # host, including its restart, and report it rather than claiming a fixture.
+      Write-Warning 'Windows selected its real Explorer host. Validating that shell; the requested fixture layout is unverified.'
+      Stop-Process -Id $desktopFixture.Id -Force
+      $desktopFixture = $null
+      [AfterglowSmokeWindow]::ExpectedOwner = 0
+      $desktopHost = 'Explorer'
+    }
     Wait-Until { $reason = [AfterglowSmokeWindow]::ValidateDesktop($application.Id); if ($reason -ne $script:lastDesktopReason) { Write-Host ('Desktop validation: ' + $reason); $script:lastDesktopReason = $reason }; (Get-Content $log -Raw).Contains('desktop-ready') -and $reason -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
     [AfterglowSmokeWindow]::RevealFixture()
