@@ -10,6 +10,8 @@ const visual = renderer(document.querySelector("#waves"), document.querySelector
 const timeline = createDesktopState();
 let timer = 0, frame = 0, lastDraw = -Infinity, dirty = true;
 function wake() {
+  const inset = Math.max(0, Number(window.__AFTERGLOW_INSET_BOTTOM__) || 0) / (devicePixelRatio || 1);
+  document.documentElement.style.setProperty("--desktop-inset-bottom", `${inset}px`);
   dirty = true;
   clearTimeout(timer); cancelAnimationFrame(frame);
   frame = requestAnimationFrame(draw);

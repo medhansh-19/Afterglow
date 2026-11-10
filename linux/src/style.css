@@ -807,26 +807,26 @@ code {
 }
 
 /* Listening footer: the supplied Mac reference, shared with wallpaper windows. */
-.now-playing { width: min(540px, 84%); max-width: none; left: 50%; right: auto; transform: translateX(-50%); bottom: clamp(28px, 5vh, 54px); margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; }
+.now-playing { width: min(540px, 84%); max-width: none; left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; }
 .track-meta { display: block; }
-.track-meta h2 { font-size: clamp(18px, 1.7vw, 24px); font-weight: 600; line-height: 1.3; letter-spacing: -.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-meta p { margin: 12px 0 0; font-size: clamp(13px, 1.3vw, 18px); line-height: 1.4; color: #ab9eab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-progress { display: grid; grid-template-columns: 58px minmax(0, 1fr) 58px; align-items: center; gap: 16px; margin-top: 18px; }
-.track-progress > span { color: #ab9eab; font: 13px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
-.track-progress #seek { width: 100%; margin: 0; padding: 0; height: 4px; border: 0; border-radius: 10px; background: linear-gradient(to right, #adadad var(--progress, 0%), #ffffff12 var(--progress, 0%)); }
+.track-meta h2 { font-size: 15px; font-weight: 500; line-height: 1.3; letter-spacing: -.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-meta p { margin: 7px 0 0; font-size: 12px; line-height: 1.4; color: #ab9eab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-progress { display: grid; width: min(272px, 100%); grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 10px; margin: 7px auto 0; }
+.track-progress > span { color: #ab9eab; font: 10px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.track-progress #seek { width: 100%; margin: 0; padding: 0; height: 2px; border: 0; border-radius: 10px; background: linear-gradient(to right, #adadad var(--progress, 0%), #ffffff12 var(--progress, 0%)); }
 .track-progress input { appearance: none; cursor: pointer; }
-.track-progress input::-webkit-slider-thumb { appearance: none; width: 4px; height: 4px; background: #adadad; border-radius: 50%; }
-.track-progress input::-moz-range-thumb { width: 4px; height: 4px; background: #adadad; border: 0; border-radius: 50%; }
+.track-progress input::-webkit-slider-thumb { appearance: none; width: 2px; height: 2px; background: #adadad; border-radius: 50%; }
+.track-progress input::-moz-range-thumb { width: 2px; height: 2px; background: #adadad; border: 0; border-radius: 50%; }
 .track-progress input:hover::-webkit-slider-thumb, .track-progress input:focus-visible::-webkit-slider-thumb { width: 10px; height: 10px; background: #eee; }
 .track-progress .progress-track { pointer-events: none; }
 #player-transport { display: none; flex: 0 0 auto; justify-content: center; gap: 20px; margin: 14px 0 0; }
 #panel[data-tab="player"] #player-transport { display: flex; }
 #beat-state { display: none; font-size: 11px; color: #ffffffc4; flex: 1; margin-right: 12px; align-self: center; }
 #panel[data-tab="audio"] #beat-state { display: block; }
-.desktop-mode .now-playing { display: block; pointer-events: none; }
+.desktop-mode .now-playing { display: block; pointer-events: none; bottom: calc(var(--desktop-inset-bottom, 0px) + 40px); }
 .desktop-mode #graph { inset: 18% 5% 25%; }
-@media (max-height: 540px) { .now-playing { bottom: 24px; } .track-meta p { margin-top: 8px; } .track-progress { margin-top: 12px; } }
-@media (max-width: 700px) { .track-progress { grid-template-columns: 45px minmax(0, 1fr) 45px; gap: 10px; } }
+@media (max-height: 540px) { .now-playing { bottom: 24px; } .desktop-mode #graph { bottom: calc(var(--desktop-inset-bottom, 0px) + 120px); } }
+
 
 #artwork { display: none !important; }
 

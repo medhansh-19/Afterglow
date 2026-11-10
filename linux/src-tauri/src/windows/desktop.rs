@@ -32,6 +32,7 @@ struct Screen {
     width: u32,
     height: u32,
     scale: u64,
+    bottom_inset: u32,
 }
 struct Layout {
     host: Host,
@@ -137,6 +138,10 @@ fn screens(app: &tauri::AppHandle) -> Result<Vec<Screen>, String> {
             width: m.size().width,
             height: m.size().height,
             scale: m.scale_factor().to_bits(),
+            bottom_inset: (m.position().y as i64 + m.size().height as i64
+                - m.work_area().position.y as i64
+                - m.work_area().size.height as i64)
+                .clamp(0, m.size().height as i64) as u32,
         })
         .filter(|m| m.width > 0 && m.height > 0)
         .collect();
@@ -172,7 +177,10 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             .skip_taskbar(true)
             .focused(false)
             .inner_size(screen.width as f64 / scale, screen.height as f64 / scale)
-            .initialization_script("window.__AFTERGLOW_WALLPAPER__=true;")
+            .initialization_script(format!(
+                "window.__AFTERGLOW_WALLPAPER__=true;window.__AFTERGLOW_INSET_BOTTOM__={};",
+                screen.bottom_inset
+            ))
             .build()
             .map_err(|e| e.to_string())?;
     let outcome = (|| -> Result<(), String> {
