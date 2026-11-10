@@ -52,14 +52,16 @@ public static class DesktopHostFixture {
       SetWindowPos(icons,IntPtr.Zero,0,0,width,height,0x10);
       SetWindowPos(root,new IntPtr(-1),left,top,width,height,0x10);
     } else {
-      var root=Window("Progman",IntPtr.Zero,quiet,false);
+      var root=Window("Progman",IntPtr.Zero,quiet|layered,true);
+      SetLayeredWindowAttributes(root,0,0,2);
       SetWindowPos(root,new IntPtr(-1),left,top,width,height,0x10);
       var icons=Window("WorkerW",IntPtr.Zero,quiet|layered,true);
       Window("SHELLDLL_DefView",icons,quiet,true);
       SetLayeredWindowAttributes(icons,0,0,2);
       var background=Window("WorkerW",IntPtr.Zero,quiet,true);
       SetWindowPos(icons,new IntPtr(-1),left,top,width,height,0x10);
-      SetWindowPos(background,new IntPtr(1),left,top,width,height,0x10);
+      SetWindowPos(background,new IntPtr(-1),left,top,width,height,0x10);
+      SetWindowPos(icons,new IntPtr(-1),left,top,width,height,0x10);
     }
     Console.WriteLine("fixture:ready");
     Message msg;while(GetMessage(out msg,IntPtr.Zero,0,0)>0){TranslateMessage(ref msg);DispatchMessage(ref msg);}

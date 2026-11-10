@@ -28,6 +28,8 @@ $application = $null
 $desktopFixture = $null
 $desktopPixelsVerified = $false
 $desktopHost = 'unverified'
+$originalShellRestart = $null
+$shellRestartChanged = $false
 try {
   function Request-Helper([hashtable]$Request) {
     $info = [System.Diagnostics.ProcessStartInfo]::new($helper)
@@ -256,6 +258,10 @@ public static class AfterglowSmokeWindow {
     # native fixture test instead of racing a partially initialized Explorer.
     $hostedFixture = $env:GITHUB_ACTIONS -eq 'true'
     if ($hostedFixture) {
+      $shellKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+      $originalShellRestart = (Get-ItemProperty $shellKey -Name AutoRestartShell -ErrorAction SilentlyContinue).AutoRestartShell
+      Set-ItemProperty $shellKey -Name AutoRestartShell -Type DWord -Value 0
+      $shellRestartChanged = $true
       Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
       Wait-Until { [AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero } 'Hosted Explorer did not release its desktop.'
     } elseif ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) {
@@ -344,6 +350,10 @@ public static class AfterglowSmokeWindow {
 } finally {
   if ($application -and -not $application.HasExited) { Stop-Process -Id $application.Id -Force -ErrorAction SilentlyContinue }
   if ($desktopFixture -and -not $desktopFixture.HasExited) { Stop-Process -Id $desktopFixture.Id -Force -ErrorAction SilentlyContinue }
+  if ($shellRestartChanged) {
+    if ($null -eq $originalShellRestart) { Remove-ItemProperty $shellKey -Name AutoRestartShell -ErrorAction SilentlyContinue }
+    else { Set-ItemProperty $shellKey -Name AutoRestartShell -Type DWord -Value $originalShellRestart }
+  }
   $env:PATH = $originalPath
   $env:AFTERGLOW_SMOKE_LOG = $originalLog
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $originalBrowserArguments
