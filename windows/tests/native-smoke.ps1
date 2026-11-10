@@ -72,7 +72,8 @@ public static class AfterglowSmokeWindow {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
+  public static IntPtr FindByClass(string cls) { return FindWindow(cls,null); }
   [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint process);
   [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hWnd);
@@ -239,14 +240,14 @@ public static class AfterglowSmokeWindow {
     }
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-    if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) { Start-Process "$env:WINDIR/explorer.exe" | Out-Null }
+    if ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) { Start-Process "$env:WINDIR/explorer.exe" | Out-Null }
     Start-Sleep -Milliseconds 1500
-    if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) {
+    if ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) {
       $desktopHost = "native-$DesktopLayout-fixture"
       $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
       Write-Warning 'Hosted runner has no Explorer shell. Testing a native host fixture; real Explorer remains unverified.'
-      Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; [AfterglowSmokeWindow]::FindWindow('Progman', $null) -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
+      Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; [AfterglowSmokeWindow]::FindByClass('Progman') -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
     } else { $desktopHost = 'Explorer'; [AfterglowSmokeWindow]::ExpectedOwner = 0 }
     $demoCount = @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count
     Invoke-Button 'Try the silent demo'
