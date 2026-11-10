@@ -43,6 +43,7 @@ struct Layout {
 }
 #[derive(Default)]
 pub struct Desktop {
+    operation: Mutex<()>,
     enabled: AtomicBool,
     generation: Arc<AtomicU64>,
     serial: AtomicU64,
@@ -351,6 +352,20 @@ pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     Ok(())
 }
 pub fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    // WebView2 creation deadlocks in synchronous commands and event handlers.
+    // Every entry point (IPC, tray and shortcuts) uses this serialized worker.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let desktop = app.state::<Desktop>();
+        let _operation = desktop.operation.lock().unwrap();
+        if let Err(error) = set_inner(&app, enabled) {
+            crate::smoke_log(&format!("desktop-error:{error}"));
+            let _ = app.emit_to("main", "desktop-error", error);
+        }
+    });
+    Ok(())
+}
+fn set_inner(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
     if !enabled {
         desktop.enabled.store(false, Ordering::SeqCst);
@@ -376,43 +391,40 @@ pub fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
         return Ok(());
     }
     desktop.hide_when_ready.store(true, Ordering::SeqCst);
-    rebuild(app, true)?;
     desktop.enabled.store(true, Ordering::SeqCst);
+    if let Err(error) = rebuild(app, true) {
+        desktop.enabled.store(false, Ordering::SeqCst);
+        desktop.hide_when_ready.store(false, Ordering::SeqCst);
+        return Err(error);
+    }
     let generation = desktop.generation.clone();
     let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
     let _ = app.emit_to("main", "desktop-state", serde_json::json!({"enabled":true}));
     let handle = app.clone();
-    let pending = Arc::new(AtomicBool::new(false));
-    let failures = Arc::new(AtomicU64::new(0));
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(1));
-        if generation.load(Ordering::SeqCst) != token {
-            break;
-        }
-        if pending.swap(true, Ordering::SeqCst) {
-            continue;
-        }
-        let app = handle.clone();
-        let generation = generation.clone();
-        let pending = pending.clone();
-        let failures = failures.clone();
-        let _ = handle.run_on_main_thread(move || {
-            if generation.load(Ordering::SeqCst) == token {
-                if let Err(error) = rebuild(&app, false) {
-                    if failures.fetch_add(1, Ordering::SeqCst) >= 9 {
-                        let _ = set(&app, false);
-                        let _ = app.emit_to(
-                            "main",
-                            "desktop-error",
-                            format!("Desktop Mode returned to its window: {error}"),
-                        );
-                    }
-                } else {
-                    failures.store(0, Ordering::SeqCst);
-                }
+    std::thread::spawn(move || {
+        let mut failures = 0;
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let desktop = handle.state::<Desktop>();
+            let _operation = desktop.operation.lock().unwrap();
+            if generation.load(Ordering::SeqCst) != token {
+                break;
             }
-            pending.store(false, Ordering::SeqCst);
-        });
+            // Keep WebView2 creation off the UI thread during recovery too.
+            if let Err(error) = rebuild(&handle, false) {
+                failures += 1;
+                if failures >= 10 {
+                    let _ = set_inner(&handle, false);
+                    let _ = handle.emit_to(
+                        "main",
+                        "desktop-error",
+                        format!("Desktop Mode returned to its window: {error}"),
+                    );
+                }
+            } else {
+                failures = 0;
+            }
+        }
     });
     Ok(())
 }
