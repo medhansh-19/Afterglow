@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "mainBinaryName": "afterglow-windows",
   "identifier": "local.medhansh.afterglow.windows",
   "bundle": {
@@ -22,6 +22,19 @@
           "English"
         ]
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGMkYzNTlFQUQ2M0Q4NzgKUldSNDJHT3RualV2ajAxVmlXOVVpMDdJTWNha1VXS1ZTVC9Wd1VPNUttTTdYamV1cjB4YmNrcEIK",
+      "endpoints": [
+        "https://github.com/medhansh-19/Afterglow/releases/download/windows-updates/windows-latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      },
+      "requireSignedVersion": true
     }
   },
   "app": {

@@ -35,3 +35,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Sparkle 2.10.1 (macOS updater)
+
+Sparkle is distributed under the MIT license, with additional bundled third-party notices. Its complete LICENSE is copied into `Afterglow.app/Contents/Resources/Sparkle-LICENSE.txt`. The framework and installer helpers are embedded under `Contents/Frameworks/Sparkle.framework`. Source: https://github.com/sparkle-project/Sparkle/tree/2.10.1 .
