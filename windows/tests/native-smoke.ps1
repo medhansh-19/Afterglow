@@ -101,6 +101,16 @@ public static class AfterglowSmokeWindow {
     EnumWindows(top,IntPtr.Zero); return found;
   }
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window,System.Text.StringBuilder text,int count);
+  public static void PreferFixtureHost() {
+    WindowProc callback = delegate(IntPtr window,IntPtr data) {
+      uint pid; GetWindowThreadProcessId(window,out pid);
+      var cls=new System.Text.StringBuilder(128);GetClassName(window,cls,128);
+      if(pid==ExpectedOwner && cls.ToString()=="Progman") SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x13);
+      return true;
+    };
+    EnumWindows(callback,IntPtr.Zero);
+  }
   public static void RevealFixture() {
     if (ExpectedOwner == 0) return;
     // Fixture screenshot only: unrelated hosted terminal windows must not
@@ -275,6 +285,7 @@ public static class AfterglowSmokeWindow {
       Write-Warning 'Testing a native desktop-host fixture; real Explorer remains unverified.'
       Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; ((Get-Content (Join-Path $OutputDirectory 'fixture-stdout.log') -Raw) -match 'fixture:ready') } 'The native desktop host fixture did not start.'
     } else { $desktopHost = 'Explorer'; [AfterglowSmokeWindow]::ExpectedOwner = 0 }
+    if ($hostedFixture) { Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force; [AfterglowSmokeWindow]::PreferFixtureHost() }
     $demoCount = @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count
     Invoke-Button 'Try the silent demo'
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count -gt $demoCount } 'Desktop demo did not load.'
@@ -305,6 +316,8 @@ public static class AfterglowSmokeWindow {
       $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
       Wait-Until { ((Get-Content (Join-Path $OutputDirectory 'fixture-stdout.log') -Raw) -match 'fixture:ready') } 'Restarted fixture did not become ready.'
+      Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
+      [AfterglowSmokeWindow]::PreferFixtureHost()
     } else {
       Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
       Start-Process "$env:WINDIR/explorer.exe" | Out-Null
