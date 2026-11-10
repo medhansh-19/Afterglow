@@ -309,6 +309,24 @@ pub fn ready(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     if !desktop.enabled.load(Ordering::SeqCst) {
         return Ok(());
     }
+    if desktop
+        .layout
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|l| l.labels.iter().any(|s| s == label))
+    {
+        if let Some(window) = app.get_webview_window(label) {
+            window.show().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    let desktop = app.state::<Desktop>();
+    if !desktop.enabled.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     let mut layout = desktop.layout.lock().unwrap();
     let Some(current) = layout.as_mut() else {
         return Ok(());

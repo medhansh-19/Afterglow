@@ -132,6 +132,14 @@ jobs:
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native-legacy' -CheckDesktop -DesktopLayout legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-native-validation
+          path: |
+            windows/test-results/native/
+            windows/test-results/native-legacy/
       - name: Stage preview packages and instructions
         if: always()
         run: |

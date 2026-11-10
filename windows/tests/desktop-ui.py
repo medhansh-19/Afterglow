@@ -14,6 +14,7 @@ mock=r'''() => {
    fixture.ready=true;
    fixture.emit('display-state',{settings:{color:'#22ccaa',clock:false,motion:true},track:{title:'Japji Sahib',artist:'Bhai Manpreet Singh Ji Kanpuri',duration:1153},sample:{position:703,duration:1153,rate:1,playing:false},playing:false,lyrics:[]});return;
   }
+  if(command==='wallpaper_presented'){fixture.presented=true;return;}
   if(command==='client_error')throw Error(args.message);
   throw Error('Unexpected command '+command);
  }};
@@ -24,7 +25,7 @@ with sync_playwright() as p:
  errors=[];page.on('pageerror',lambda err:errors.append(str(err)))
  page.add_init_script('('+mock+')()');page.goto('http://127.0.0.1:1420/?platform=windows');page.wait_for_load_state('networkidle')
  expect(page.locator('#title')).to_have_text('Japji Sahib');expect(page.locator('#time')).to_have_text('11:43');expect(page.locator('#duration')).to_have_text('19:13')
- assert page.evaluate('fixture.ready')
+ assert page.evaluate('fixture.ready');page.wait_for_function('fixture.presented === true')
  assert page.locator('.now-playing button, .now-playing img, .now-playing input').count()==0
  expect(page.get_by_role('progressbar')).to_have_attribute('aria-valuenow','703')
  for width,height in [(1440,900),(1920,1200),(1366,768),(3440,1440),(1080,1920),(3840,2160),(683,384)]:

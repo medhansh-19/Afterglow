@@ -8,7 +8,7 @@ document.body.classList.add("desktop-mode");
 document.body.innerHTML = `<main class="stage"><canvas id="waves" aria-hidden="true"></canvas><div id="clock" class="clock"></div><div id="graph" class="graph" role="img"></div>${listeningFooter({ interactive: false })}</main>`;
 const visual = renderer(document.querySelector("#waves"), document.querySelector("#graph"), document.querySelector("#clock"));
 const timeline = createDesktopState();
-let timer = 0, frame = 0, lastDraw = -Infinity, dirty = true;
+let timer = 0, frame = 0, lastDraw = -Infinity, dirty = true, receivedState = false, presented = false;
 function wake() {
   const inset = Math.max(0, Number(window.__AFTERGLOW_INSET_BOTTOM__) || 0) / (devicePixelRatio || 1);
   document.documentElement.style.setProperty("--desktop-inset-bottom", `${inset}px`);
@@ -16,7 +16,7 @@ function wake() {
   clearTimeout(timer); cancelAnimationFrame(frame);
   frame = requestAnimationFrame(draw);
 }
-await listen("display-state", (event) => { timeline.receive(event.payload, performance.now()); wake(); });
+await listen("display-state", (event) => { timeline.receive(event.payload, performance.now()); receivedState = true; wake(); });
 await listen("audio-frame", (event) => { timeline.audio(event.payload, performance.now()); wake(); });
 await listen("audio-ended", () => { timeline.receive({ audioActive: false }, performance.now()); wake(); });
 await listen("power-state", (event) => { timeline.power(event.payload, performance.now()); wake(); });
@@ -32,6 +32,11 @@ function draw(now) {
     visual.draw(now, state);
     updateFooter(document, state.track, state.position);
     lastDraw = now; dirty = false;
+    const canvas = document.querySelector("#waves");
+    if (!presented && receivedState && canvas.width > 0 && canvas.height > 0) {
+      presented = true;
+      invoke("wallpaper_presented").catch(() => { presented = false; });
+    }
   }
   timer = setTimeout(() => { frame = requestAnimationFrame(draw); }, animated ? 0 : interval);
 }

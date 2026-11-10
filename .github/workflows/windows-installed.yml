@@ -8,6 +8,15 @@ on:
       run_id:
         description: Windows preview workflow containing the installer
         required: true
+      check_desktop:
+        description: Include native desktop host acceptance
+        type: boolean
+        default: false
+      desktop_layout:
+        description: Native fixture layout when Explorer is unavailable
+        type: choice
+        options: [modern, legacy]
+        default: modern
       release_tag:
         description: Versioned Windows draft release to stage
         default: windows-v0.1.1
@@ -47,7 +56,8 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
           $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw 'Installer failed' }
-          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native
+          $desktop = '${{ inputs.check_desktop }}' -eq 'true'
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native -CheckDesktop:$desktop -DesktopLayout '${{ inputs.desktop_layout || 'modern' }}'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

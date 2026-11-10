@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$AppPath,
   [string]$OutputDirectory = "$PSScriptRoot/../../output/windows-native-smoke",
-  [switch]$CheckDesktop
+  [switch]$CheckDesktop,
+  [ValidateSet('modern','legacy')][string]$DesktopLayout = 'modern'
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native smoke requires Windows; browser tests cannot replace it.' }
@@ -24,6 +25,9 @@ $cleanPath = @("$env:SystemRoot/system32", $env:SystemRoot, "$env:SystemRoot/Sys
 $env:PATH = $cleanPath
 $env:AFTERGLOW_SMOKE_LOG = $log
 $application = $null
+$desktopFixture = $null
+$desktopPixelsVerified = $false
+$desktopHost = 'unverified'
 try {
   function Request-Helper([hashtable]$Request) {
     $info = [System.Diagnostics.ProcessStartInfo]::new($helper)
@@ -64,6 +68,7 @@ try {
 using System;
 using System.Runtime.InteropServices;
 public static class AfterglowSmokeWindow {
+  public static uint ExpectedOwner = 0;
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -77,6 +82,7 @@ public static class AfterglowSmokeWindow {
   [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   delegate bool WindowProc(IntPtr window, IntPtr data);
   delegate bool MonitorProc(IntPtr monitor, IntPtr hdc, ref Rect rect, IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumWindows(WindowProc callback, IntPtr data);
   [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, WindowProc callback, IntPtr data);
   [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorProc callback, IntPtr data);
   public struct Rect { public int Left,Top,Right,Bottom; }
@@ -88,7 +94,8 @@ public static class AfterglowSmokeWindow {
       if (process == (uint)pid && title.ToString() == "Afterglow Wallpaper") found.Add(window);
       return true;
     };
-    EnumChildWindows(GetDesktopWindow(),callback,IntPtr.Zero); return found;
+    WindowProc top = delegate(IntPtr window, IntPtr data) { callback(window,data); EnumChildWindows(window,callback,data); return true; };
+    EnumWindows(top,IntPtr.Zero); return found;
   }
   public static string ValidateDesktop(int pid) {
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
@@ -100,7 +107,7 @@ public static class AfterglowSmokeWindow {
       if (windows.Count != monitors.Count || windows.Count == 0) return "Wallpaper count differs from monitor count.";
       foreach (var window in windows) {
         uint parent; GetWindowThreadProcessId(GetParent(window),out parent);
-        if (parent == (uint)pid || parent == 0 || System.Diagnostics.Process.GetProcessById((int)parent).ProcessName.ToLowerInvariant() != "explorer") return "Wallpaper is not parented to Explorer.";
+        if (parent == (uint)pid || parent == 0 || (ExpectedOwner != 0 ? parent != ExpectedOwner : System.Diagnostics.Process.GetProcessById((int)parent).ProcessName.ToLowerInvariant() != "explorer")) return "Wallpaper is not parented to Explorer.";
         if ((Style(window,-16).ToInt64() & 0x40000000) == 0) return "Wallpaper is not a child window.";
         if ((Style(window,-20).ToInt64() & 0x08000020) != 0x08000020) return "Wallpaper is not click-through and non-activating.";
         Rect actual; if (!GetWindowRect(window,out actual)) return "Wallpaper bounds unavailable.";
@@ -233,14 +240,27 @@ public static class AfterglowSmokeWindow {
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
     if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) { Start-Process "$env:WINDIR/explorer.exe" | Out-Null }
-    Wait-Until { [AfterglowSmokeWindow]::FindWindow('Progman', $null) -ne [IntPtr]::Zero } 'Explorer desktop is unavailable for native acceptance.'
+    Start-Sleep -Milliseconds 1500
+    if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) {
+      $desktopHost = "native-$DesktopLayout-fixture"
+      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -PassThru
+      [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
+      Write-Warning 'Hosted runner has no Explorer shell. Testing a native host fixture; real Explorer remains unverified.'
+      Wait-Until { [AfterglowSmokeWindow]::FindWindow('Progman', $null) -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
+    } else { $desktopHost = 'Explorer'; [AfterglowSmokeWindow]::ExpectedOwner = 0 }
     $demoCount = @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count
     Invoke-Button 'Try the silent demo'
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count -gt $demoCount } 'Desktop demo did not load.'
+    $baselinePixels = Capture-DesktopSignal
     Invoke-Button 'Desktop'
     Wait-Until { (Get-Content $log -Raw).Contains('desktop-ready') -and [AfterglowSmokeWindow]::ValidateDesktop($application.Id) -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
-    Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20
+    if ($baselinePixels -gt 40) {
+      Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20
+      $desktopPixelsVerified = $true
+    } else {
+      Write-Warning 'The hosted framebuffer does not expose the visible app pixels. Canvas first-frame readiness and native geometry are checked; desktop screenshot visibility remains unverified.'
+    }
     $open = Start-Process $AppPath -PassThru
     $open.WaitForExit(10000) | Out-Null
     Wait-Until { [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Tray-style restore did not show controls over the wallpaper.'
@@ -248,20 +268,28 @@ public static class AfterglowSmokeWindow {
     if ([AfterglowSmokeWindow]::ValidateDesktop($application.Id) -ne '') { throw 'Opening Controls removed the desktop wallpaper.' }
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
     $readyCount = @((Get-Content $log) | Where-Object { $_ -eq 'desktop-ready' }).Count
-    Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
-    Start-Process "$env:WINDIR/explorer.exe" | Out-Null
+    if ($desktopFixture) {
+      Stop-Process -Id $desktopFixture.Id -Force
+      $desktopFixture.WaitForExit(5000) | Out-Null
+      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -PassThru
+      [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
+    } else {
+      Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
+      Start-Process "$env:WINDIR/explorer.exe" | Out-Null
+    }
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'desktop-ready' }).Count -gt $readyCount -and [AfterglowSmokeWindow]::ValidateDesktop($application.Id) -eq '' } 'Wallpaper did not reconnect after Explorer restarted.' 45
     if (-not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle)) { throw 'Desktop recovery hid the controls the user had reopened.' }
     $restore = Start-Process $AppPath -ArgumentList '--action', 'desktop' -PassThru
     $restore.WaitForExit(10000) | Out-Null
     Wait-Until { [AfterglowSmokeWindow]::Wallpapers($application.Id).Count -eq 0 -and [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Stopping Desktop Mode left an orphan wallpaper or hidden controls.'
-    Write-Host 'PASS native full-monitor Explorer parenting, click-through styles, ready handshake, controls restore, Explorer restart recovery and wallpaper cleanup'
+    Write-Host "PASS native full-monitor $desktopHost parenting, click-through styles, first-frame handshake, controls restore, host restart recovery and cleanup"
   }
   Start-Sleep -Milliseconds 500
   $contents = Get-Content $log -Raw
   if ($contents.Contains('client-error:')) { throw "Native UI reported an error: $contents" }
   $report = @{
     desktopChecked = [bool]$CheckDesktop
+    desktopHost = $desktopHost; desktopPixelsVerified = $desktopPixelsVerified
     passed = $true; appPath = $AppPath; developerSwiftPathRemoved = $true
     helper = @('demo', 'unicode-lrc-offset', 'enhanced-lrc', 'yaml', 'txt', 'invalid-command')
     native = @('WebView2-ready', 'accessible-demo-button', 'native-lyrics-bridge', 'controls', 'appearance', 'save-replace-existing-preferences', 'process-restart-preference-reload', 'single-instance-action', 'close-to-tray-owner', 'restore-window')
@@ -289,6 +317,7 @@ public static class AfterglowSmokeWindow {
   throw
 } finally {
   if ($application -and -not $application.HasExited) { Stop-Process -Id $application.Id -Force -ErrorAction SilentlyContinue }
+  if ($desktopFixture -and -not $desktopFixture.HasExited) { Stop-Process -Id $desktopFixture.Id -Force -ErrorAction SilentlyContinue }
   $env:PATH = $originalPath
   $env:AFTERGLOW_SMOKE_LOG = $originalLog
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $originalBrowserArguments

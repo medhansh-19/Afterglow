@@ -248,6 +248,15 @@ fn wallpaper_ready(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resul
     display::ready(&app, window.label())
 }
 #[tauri::command]
+fn wallpaper_presented(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    if !display::is_wallpaper(window.label()) {
+        return Err("This command belongs to the wallpaper renderer.".into());
+    }
+    #[cfg(target_os = "windows")]
+    windows::desktop::presented(&app, window.label())?;
+    Ok(())
+}
+#[tauri::command]
 fn disable_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     return windows::shortcuts::stop(&app);
@@ -418,6 +427,7 @@ fn main() {
             desktop_mode,
             publish_display,
             wallpaper_ready,
+            wallpaper_presented,
             enable_shortcuts,
             disable_shortcuts,
             ui_ready,
