@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['Sources/Afterglow/**', 'Sources/AfterglowCore/**', 'Tests/**', 'Resources/**', 'Package.*', 'build.sh', 'tools/sign-local.sh', 'tools/macos-*', 'tools/check-macos-*', 'tools/verify-sparkle-signature.swift', 'tools/tests/test_macos*.py', '.github/workflows/macos.yml']
   push:
-    branches: ['codex/in-app-updates']
+    branches: ['main', 'codex/in-app-updates']
   workflow_dispatch:
 permissions:
   contents: read

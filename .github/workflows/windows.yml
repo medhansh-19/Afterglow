@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['windows/**', 'linux/**', '.cargo/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', 'THIRD_PARTY_NOTICES.md', '.github/workflows/windows.yml']
   push:
-    branches: ['codex/windows-app', 'codex/in-app-updates']
+    branches: ['main', 'codex/windows-app', 'codex/in-app-updates']
   workflow_dispatch:
 permissions:
   contents: read
