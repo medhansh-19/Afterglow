@@ -61,6 +61,7 @@ public static class DesktopHostFixture {
       SetWindowPos(icons,new IntPtr(-1),left,top,width,height,0x10);
       SetWindowPos(background,new IntPtr(1),left,top,width,height,0x10);
     }
+    Console.WriteLine("fixture:ready");
     Message msg;while(GetMessage(out msg,IntPtr.Zero,0,0)>0){TranslateMessage(ref msg);DispatchMessage(ref msg);}
   }
 }

@@ -267,7 +267,7 @@ public static class AfterglowSmokeWindow {
       $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
       Write-Warning 'Testing a native desktop-host fixture; real Explorer remains unverified.'
-      Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; [AfterglowSmokeWindow]::FindByClass('Progman') -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
+      Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; (Get-Content (Join-Path $OutputDirectory 'fixture-stdout.log') -Raw).Contains('fixture:ready') } 'The native desktop host fixture did not start.'
     } else { $desktopHost = 'Explorer'; [AfterglowSmokeWindow]::ExpectedOwner = 0 }
     $demoCount = @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count
     Invoke-Button 'Try the silent demo'
@@ -296,6 +296,7 @@ public static class AfterglowSmokeWindow {
       $desktopFixture.WaitForExit(5000) | Out-Null
       $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
+      Wait-Until { (Get-Content (Join-Path $OutputDirectory 'fixture-stdout.log') -Raw).Contains('fixture:ready') } 'Restarted fixture did not become ready.'
     } else {
       Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
       Start-Process "$env:WINDIR/explorer.exe" | Out-Null
