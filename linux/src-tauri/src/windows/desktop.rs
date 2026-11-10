@@ -169,19 +169,10 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
         return Err("Windows could not match the desktop display scale.".into());
     }
     let _dpi = DpiScope(previous);
-    // Tauri and the adapter use different windows-rs versions. Preserve Tauri's
-    // handle type while setting the same native parent pointer.
-    let mut native_parent = app
-        .get_webview_window("main")
-        .ok_or("Main window unavailable")?
-        .hwnd()
-        .map_err(|e| e.to_string())?;
-    native_parent.0 = host.parent as *mut _;
     let scale = f64::from_bits(screen.scale).max(1.0);
     let wallpaper =
         tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
             .title("Afterglow Wallpaper")
-            .parent_raw(native_parent)
             .visible(false)
             .decorations(false)
             .skip_taskbar(true)
@@ -213,6 +204,11 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
                 SetLayeredWindowAttributes(native, COLORREF(0), 255, LWA_ALPHA)
                     .map_err(|e| e.to_string())?;
             }
+            windows::Win32::Foundation::SetLastError(windows::Win32::Foundation::WIN32_ERROR(0));
+            let result = SetParent(native, Some(hwnd(host.parent)));
+            if result.is_err() && windows::Win32::Foundation::GetLastError().0 != 0 {
+                return Err("Windows could not attach the wallpaper behind desktop icons.".into());
+            }
             let mut point = POINT {
                 x: screen.x,
                 y: screen.y,
@@ -236,8 +232,8 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             )
             .map_err(|e| e.to_string())?;
         }
-        // Keep native extended styles after attachment. Tao's visibility/cursor setters
-        // rebuild styles from cached flags. The builder also records the child parent.
+        // Keep native styles after attachment. Tao's visibility/cursor setters
+        // rebuild GWL_STYLE from their original top-level flags and erase WS_CHILD.
         Ok(())
     })();
     if outcome.is_err() {
