@@ -4,9 +4,9 @@ A Windows 11 x64 development preview built from the same local Tauri interface a
 
 ## Install
 
-Download the `afterglow-windows-x86_64-preview` artifact from a successful **Windows preview** [workflow run](https://github.com/medhansh-19/Afterglow/actions/workflows/windows.yml). Extract the ZIP and run the included setup executable. The installer bundles the lyric helper and its Swift runtime; users do not need to install Swift, Rust, Node.js or Python. WebView2 is required and the installer can bootstrap Microsoft's runtime when it is missing.
+Download the Windows 0.1.1 setup executable from [GitHub Releases](https://github.com/medhansh-19/Afterglow/releases). Run it to install or update the existing preview; local preferences are preserved. Build artifacts are also available from the **Windows preview** workflow. The installer bundles the lyric helper and its Swift runtime; users do not need to install Swift, Rust, Node.js or Python. WebView2 is required and the installer can bootstrap Microsoft's runtime when it is missing.
 
-This preview is unsigned and has no automatic updater. Keep the installer and its SHA256 checksum together. Use Windows Settings → Apps to uninstall it. App data is kept separately from the install directory.
+This preview is unsigned and has no automatic updater. Users of earlier downloads must install the new setup executable manually; publishing a release cannot update an already installed copy. Keep the installer and its SHA256 checksum together. Use Windows Settings → Apps to uninstall it. App data is kept separately from the install directory.
 
 ## Connect music
 
@@ -14,7 +14,7 @@ Start a song in Spotify, Apple Music for Windows, or a player that publishes a W
 
 Use Controls for lyric imports, recording alternatives, timing adjustment, appearance, saved colors, clocks, song scenes, collections, lyric cards and beat sync. Plain-text lyrics remain in the lyric library; the main display uses timed lyrics. The silent demo is available without connecting a player.
 
-Beat sync uses Windows process loopback, capturing only the chosen process tree. Select the player's audio process explicitly: Windows media-session identities are not process IDs. A browser process tree can include several tabs. Capture stops when playback pauses, the window is hidden without a visible wallpaper, or Windows sleeps. Audio is analyzed locally, without microphone capture, audio files or uploads. DRM-protected playback or a player that does not expose an audio session may be unavailable or silent.
+Beat sync uses Windows process loopback, capturing only the chosen process tree. Select the player's audio process explicitly: Windows media-session identities are not process IDs. A browser process tree can include several tabs. Capture continues while Controls and its live preview are open. Switching audio streams stops the previous capture before starting the selected stream. Capture stops when playback pauses, the window is hidden without a visible wallpaper, or Windows sleeps. Audio is analyzed locally, without microphone capture, audio files or uploads. DRM-protected playback or a player that does not expose an audio session may be unavailable or silent.
 
 Desktop mode creates a separate, click-through view behind Explorer's desktop icons. The system tray restores the main window and offers Quit. Explorer restarts, multiple monitors, scaling and third-party desktop shells need hardware validation; see the feature audit.
 

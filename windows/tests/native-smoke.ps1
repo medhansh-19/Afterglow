@@ -77,6 +77,8 @@ public static class AfterglowSmokeWindow {
     throw $Failure
   }
   function Find-Button([string]$Name) {
+    $application.Refresh()
+    [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
     if ($null -eq $root) { return $null }
     $condition = [System.Windows.Automation.AndCondition]::new(
@@ -88,9 +90,10 @@ public static class AfterglowSmokeWindow {
   function Invoke-Button([string]$Name) {
     $script:button = $null
     Wait-Until { $script:button = Find-Button $Name; $null -ne $script:button } "Native accessible button is missing: $Name"
-    $pattern = $null
-    if ($script:button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
-    else { $script:button.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
+    [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
+    $script:button.SetFocus()
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   }
   $application = Start-Process -FilePath $AppPath -PassThru
   Wait-Until { $application.Refresh(); $application.MainWindowHandle -ne [IntPtr]::Zero } 'Afterglow native main window did not appear.'
@@ -168,6 +171,24 @@ public static class AfterglowSmokeWindow {
   }
   $report | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $OutputDirectory 'report.json') -Encoding utf8
   Write-Host 'PASS packaged Swift helper with stripped developer PATH, native WebView2 demo/controls, single-instance forwarding and close/restore lifecycle'
+} catch {
+  try {
+    if ($application -and -not $application.HasExited) {
+      $application.Refresh()
+      $root = [System.Windows.Automation.AutomationElement]::FromHandle($application.MainWindowHandle)
+      $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {
+        [pscustomobject]@{ name=$_.Current.Name; control=$_.Current.ControlType.ProgrammaticName; enabled=$_.Current.IsEnabled; offscreen=$_.Current.IsOffscreen; bounds=$_.Current.BoundingRectangle.ToString() }
+      } | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $OutputDirectory 'ui-tree.json')
+      Add-Type -AssemblyName System.Drawing
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+      $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+      $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+      $bitmap.Save((Join-Path $OutputDirectory 'failure.png'))
+      $graphics.Dispose(); $bitmap.Dispose()
+    }
+  } catch { Write-Warning "Could not capture failure diagnostics: $_" }
+  throw
 } finally {
   if ($application -and -not $application.HasExited) { Stop-Process -Id $application.Id -Force -ErrorAction SilentlyContinue }
   $env:PATH = $originalPath

@@ -353,30 +353,37 @@ fn capture(
         wBitsPerSample: 32,
         cbSize: 0,
     };
+    // Process loopback follows the SDK's event-driven initialization. Let Windows
+    // choose its buffer size; the event also avoids polling a silent stream.
+    let sample_event = Process(unsafe { CreateEventW(None, false, false, None) }
+        .map_err(|e| format!("Could not create the player audio event: {e}"))?);
     unsafe {
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-            200_000,
+            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+            0,
             0,
             &format,
             None,
         )
     }
     .map_err(|e| e.to_string())?;
+    unsafe { client.SetEventHandle(sample_event.0) }
+        .map_err(|e| format!("Could not listen for player audio: {e}"))?;
     let capture: IAudioCaptureClient = unsafe { client.GetService() }.map_err(|e| e.to_string())?;
     if generation_changed(generation, token, app) {
         return Err("Audio capture canceled.".into());
     }
     unsafe { client.Start() }.map_err(|e| e.to_string())?;
     let _ = ready.send(Ok(()));
-    let result = analyze(app, &capture, &process, pid, binary, generation, token);
+    let result = analyze(app, &capture, &sample_event, &process, pid, binary, generation, token);
     let _ = unsafe { client.Stop() };
     result
 }
 fn analyze(
     app: &AppHandle,
     capture: &IAudioCaptureClient,
+    sample_event: &Process,
     process: &Process,
     pid: u32,
     binary: &str,
@@ -466,7 +473,11 @@ fn analyze(
             }
             packets = unsafe { capture.GetNextPacketSize() }.map_err(|e| e.to_string())?;
         }
-        std::thread::sleep(Duration::from_millis(10));
+        // Bounded wait preserves stop/sleep cancellation even when no samples arrive.
+        let wait = unsafe { WaitForSingleObject(sample_event.0, 100) };
+        if wait == windows::Win32::Foundation::WAIT_FAILED {
+            return Err("Windows stopped signaling player audio. Select the stream again.".into());
+        }
     }
     Ok(())
 }
