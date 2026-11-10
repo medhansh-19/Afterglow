@@ -28,7 +28,15 @@ jobs:
         shell: bash
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" > build-run.json
-          python -c 'import json,os; r=json.load(open("build-run.json")); assert r["conclusion"]=="success" and r["head_sha"]==os.environ["GITHUB_SHA"]'
+          python - <<'PY'
+          import json, os, subprocess
+          r=json.load(open('build-run.json'))
+          assert r['conclusion']=='success'
+          if r['head_sha'] != os.environ['GITHUB_SHA']:
+              subprocess.run(['git','fetch','--depth=1','origin',r['head_sha']],check=True)
+              changed=subprocess.check_output(['git','diff','--name-only',r['head_sha'],os.environ['GITHUB_SHA']],text=True).splitlines()
+              assert all(p.startswith('tools/updater-acceptance/') or p=='.github/workflows/desktop-upgrade-acceptance.yml' for p in changed), changed
+          PY
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.platform == 'windows' && 'afterglow-windows-x86_64-preview' || 'afterglow-linux-x86_64-preview' }}
