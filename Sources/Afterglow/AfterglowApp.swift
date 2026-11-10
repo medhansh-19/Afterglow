@@ -7,6 +7,7 @@ struct AfterglowApp: App {
   @StateObject private var shortcut = FocusShortcut()
   @StateObject private var desktopShortcut = FocusShortcut.desktop()
   @StateObject private var beatShortcut = FocusShortcut.beatSync()
+  @StateObject private var updates = AppUpdates.shared
   @StateObject private var model = DisplayModel()
   @StateObject private var beats = BeatCapture()
   @StateObject private var desktop = DesktopMode()
@@ -29,6 +30,7 @@ struct AfterglowApp: App {
     .windowStyle(.hiddenTitleBar)
     .commands {
       CommandGroup(replacing: .newItem) {}
+      CommandGroup(after: .appInfo) { UpdateMenu(updates: updates) }
       CommandMenu("Controls") {
         AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels, includeQuit: false)
       }
@@ -57,6 +59,8 @@ struct AfterglowApp: App {
     }
     MenuBarExtra("Afterglow", systemImage: "waveform.path") {
       AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels)
+      Divider()
+      UpdateMenu(updates: updates)
     }
   }
 }

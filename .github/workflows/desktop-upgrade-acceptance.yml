@@ -1,0 +1,72 @@
+name: Desktop signed upgrade acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      windows_run:
+        description: Successful Windows build run on the selected commit
+        required: false
+      linux_run:
+        description: Successful Linux build run on the selected commit
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows, linux]
+    runs-on: ${{ matrix.platform == 'windows' && 'windows-2025' || 'ubuntu-24.04' }}
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ matrix.platform == 'windows' && inputs.windows_run || inputs.linux_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require matching successful build
+        shell: bash
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" > build-run.json
+          python -c 'import json,os; r=json.load(open("build-run.json")); assert r["conclusion"]=="success" and r["head_sha"]==os.environ["GITHUB_SHA"]'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.platform == 'windows' && 'afterglow-windows-x86_64-preview' || 'afterglow-linux-x86_64-preview' }}
+          path: candidate
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/updater-acceptance -> target
+      - name: Install Linux acceptance dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libgtk-layer-shell-dev libdbus-1-dev libssl-dev libxdo-dev xvfb dbus-x11 openbox xdotool x11-utils pkexec
+      - name: Build standalone native SDK acceptance runner
+        shell: bash
+        run: cargo build --release --locked --manifest-path tools/updater-acceptance/Cargo.toml
+      - name: Download published baseline
+        shell: bash
+        run: |
+          mkdir baseline
+          if [ '${{ matrix.platform }}' = windows ]; then
+            gh release download windows-v0.1.1 --repo "$GITHUB_REPOSITORY" --pattern Afterglow-windows-x64-setup.exe --dir baseline
+          else
+            gh release download v3.0.7-preview.1 --repo "$GITHUB_REPOSITORY" --pattern '*amd64.deb' --pattern '*amd64.AppImage' --dir baseline
+          fi
+      - name: Run actual signed download and native upgrade
+        shell: bash
+        run: |
+          RUNNER=tools/updater-acceptance/target/release/afterglow-update-acceptance
+          if [ '${{ matrix.platform }}' = windows ]; then RUNNER="$RUNNER.exe"; fi
+          python tools/updater-acceptance/run.py '${{ matrix.platform }}' candidate "$RUNNER" baseline acceptance-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.platform }}-signed-upgrade-acceptance
+          path: acceptance-results

@@ -227,16 +227,19 @@ struct MarkerShape: Shape {
                                        width: rect.width, height: rect.height * 0.7))
     case .diamond: return Diamond().path(in: rect)
     default:
-      let vertices = marker == .triangle ? 3 : marker == .star ? 10 : 8
-      return Path { path in
-        for i in 0..<vertices {
-          let angle = Double(i) * 2 * .pi / Double(vertices) - .pi / 2
-          let radius = min(rect.width, rect.height) / 2 * (marker == .star && i % 2 == 1 ? 0.44 : 1)
-          let point = CGPoint(x: rect.midX + cos(angle) * radius, y: rect.midY + sin(angle) * radius)
-          if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        path.closeSubpath()
+      let vertices: Int = marker == .triangle ? 3 : marker == .star ? 10 : 8
+      var path = Path()
+      for i in 0..<vertices {
+        let angle: Double = Double(i) * 2 * Double.pi / Double(vertices) - Double.pi / 2
+        let scale: CGFloat = marker == .star && i % 2 == 1 ? 0.44 : 1
+        let radius: CGFloat = min(rect.width, rect.height) / 2 * scale
+        let x: CGFloat = rect.midX + CGFloat(cos(angle)) * radius
+        let y: CGFloat = rect.midY + CGFloat(sin(angle)) * radius
+        let point = CGPoint(x: x, y: y)
+        if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
       }
+      path.closeSubpath()
+      return path
     }
   }
 }

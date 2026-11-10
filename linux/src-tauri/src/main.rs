@@ -5,6 +5,7 @@ mod desktop;
 mod player;
 mod power;
 mod shortcuts;
+mod updates;
 #[cfg(target_os = "windows")]
 mod windows;
 use std::{
@@ -339,6 +340,7 @@ fn main() {
         .manage(shortcuts::Shortcuts::default())
         .setup(|app| {
             power::start(app.handle().clone());
+            updates::setup(app)?;
             let arguments: Vec<String> = std::env::args().collect();
             if let Some(index) = arguments.iter().position(|a| a == "--action") {
                 if let Some(action) = arguments.get(index + 1) {
@@ -354,12 +356,16 @@ fn main() {
                 MenuItem::with_id(app, "restore", "Return to Window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Afterglow", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &restore, &quit])?;
+            updates::add_menu(app, &menu)?;
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .tooltip("Afterglow")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
+                    if updates::menu_event(app, event.id.as_ref()) {
+                        return;
+                    }
                     if event.id.as_ref() == "quit" {
                         app.state::<audio::Capture>().stop();
                         app.exit(0);

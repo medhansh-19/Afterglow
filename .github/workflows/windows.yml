@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['windows/**', 'linux/**', '.cargo/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', 'THIRD_PARTY_NOTICES.md', '.github/workflows/windows.yml']
   push:
-    branches: ['codex/windows-app']
+    branches: ['main', 'codex/windows-app', 'codex/in-app-updates']
   workflow_dispatch:
 permissions:
   contents: read
@@ -113,6 +113,9 @@ jobs:
           python linux/scripts/collect-notices.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build Windows installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         working-directory: linux
         run: |
           npm run tauri -- build --config ../windows/tauri.windows.conf.json
@@ -130,7 +133,7 @@ jobs:
         run: |
           $destination = 'windows/test-results/packages'
           New-Item -ItemType Directory -Force $destination | Out-Null
-          Get-ChildItem 'linux/src-tauri/target/release/bundle' -Recurse -File -Include *.exe,*.msi -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
+          Get-ChildItem 'linux/src-tauri/target/release/bundle' -Recurse -File -Include *.exe,*.msi,*.sig -ErrorAction SilentlyContinue | Copy-Item -Destination $destination
           Copy-Item windows/README.md,windows/PLAN.md,windows/PARITY.md,windows/VALIDATION.md -Destination $destination -ErrorAction Continue
           Get-ChildItem $destination -File | Where-Object Extension -In '.exe','.msi' | ForEach-Object {
             $hash = Get-FileHash $_.FullName -Algorithm SHA256

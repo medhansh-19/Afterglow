@@ -72,3 +72,9 @@ All rights reserved. No public permission to copy, modify or redistribute Afterg
 Open **Appearance & Wallpaper** from the Afterglow menu, choose your backdrop, glow, marker and visual preferences, then **Save Scene for This Song**. Saved scenes return automatically for that recording; songs without a scene use your default appearance. Use **Update Scene** to keep later changes or **Remove Scene** to return to defaults. Scenes and independent wallpaper copies stay on this Mac.
 
 Open **Lyric Cards** from the menu (or **Create a Lyric Card** in the library). Select up to six lines and 280 characters, then save the excerpt, **Export PNG** or **Copy Image**. Cards use the song’s album accent, falling back to Rose when unavailable, and export at 1080 × 1350. Saved excerpts retain their original song and colors even after playback changes.
+
+## In-app desktop updates
+
+Updater-enabled releases offer **Check for Updates…**, automatic-check preferences, signed downloads and installation/restart prompts on macOS, Windows and Linux. macOS uses Sparkle with signed appcasts and archives; Windows and Linux use the Tauri updater with version-bound signatures. Linux supports the existing Debian and AppImage packages. Mac release candidates can contain both Apple Silicon and Intel code (`AFTERGLOW_UNIVERSAL=1 zsh build.sh`).
+
+Existing installations need one manual upgrade to enable this flow. Public update feeds are promoted separately from builds; see [the update release guide](docs/UPDATES.md). macOS CI candidates remain ad-hoc signed and not notarized; configured Developer ID identities are supported by the packaging script.

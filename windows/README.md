@@ -52,3 +52,18 @@ npm run tauri -- dev --config ../windows/tauri.windows.conf.json
 ```
 
 Browser preview and macOS checks exercise portable logic only. Windows CI compiles the native adapters, runs Windows tests and packages the app. Real Spotify/Apple Music, capture isolation, Explorer recovery, sleep/wake and hardware power behavior remain separate acceptance tests. See [PLAN.md](PLAN.md) for architecture and official API sources.
+
+## Signed in-app updates (0.2.0 onward)
+
+Windows checks after 30 seconds and every six hours. The tray menu offers **Check for Updates…** and a persistent **Automatically Check for Updates** preference. Download and installation each require consent. Downloads are cryptographically verified; background network failures do not interrupt listening. Failed user-initiated downloads show a retry instruction. Declining installation discards the downloaded bytes; a manual check can download again. Settings and the application identifier remain unchanged.
+
+Existing 0.1.0 previews need one manual upgrade. macOS and Linux now have their own signed update channels. See `docs/UPDATES.md` for the cross-platform release procedure.
+
+Release steps:
+1. Increase `windows/tauri.windows.conf.json` version. Keep the updater public key unchanged. CI uses repository secret `TAURI_SIGNING_PRIVATE_KEY` (not an Authenticode certificate).
+2. Run Windows preview CI on the release commit. Require native tests, install smoke test and signed `.exe.sig` output.
+3. Run **Stage signed desktop update** (select Windows) with that successful run ID and an immutable `windows-vX.Y.Z` tag. It produces a draft containing the installer, signature and `windows-latest.json`.
+4. On a real Windows machine, test an older updater-enabled build against the candidate manifest: accept download, verify installation/relaunch and settings; also test decline, offline and a corrupted signed artifact. Never promote a failed candidate.
+5. Publish the versioned release. Create a public GitHub release tagged `windows-updates` once, then upload the tested `windows-latest.json` to that channel release with `gh release upload windows-updates windows-latest.json --clobber`. Keep the installer at its immutable versioned URL. The feed is Windows-only and unrelated releases do not affect it.
+
+Before the first feed is promoted, automatic checks quietly retry; manual checks report that the service could not be reached. Keep a secure backup of the signing key. Losing it requires a manual upgrade to trust a new key. Authenticode signing and SmartScreen reputation remain a separate Windows distribution concern.
