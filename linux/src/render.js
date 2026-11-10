@@ -194,9 +194,10 @@ export function renderer(canvas, graph, clock) {
       c.fillStyle = "#09090b";
       c.fillRect(0, 0, 1600, 1000);
       if (frozen) {
-        const font = await fetch("/fonts/manrope.woff2").then((r) =>
-          r.arrayBuffer(),
-        );
+        const font = await fetch(new URL("/fonts/manrope.woff2", location.href)).then((r) => {
+          if (!r.ok) throw Error("Screenshot font could not be loaded. Try again.");
+          return r.arrayBuffer();
+        });
         let bytes = "";
         for (const value of new Uint8Array(font))
           bytes += String.fromCharCode(value);

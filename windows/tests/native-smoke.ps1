@@ -273,6 +273,7 @@ public static class AfterglowSmokeWindow {
     Invoke-Button 'Try the silent demo'
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count -gt $demoCount } 'Desktop demo did not load.'
     $baselinePixels = Capture-DesktopSignal
+    Invoke-Button 'Controls'
     Invoke-Button 'Desktop'
     Wait-Until { $reason = [AfterglowSmokeWindow]::ValidateDesktop($application.Id); if ($reason -ne $script:lastDesktopReason) { Write-Host ('Desktop validation: ' + $reason); $script:lastDesktopReason = $reason }; (Get-Content $log -Raw).Contains('desktop-ready') -and $reason -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'

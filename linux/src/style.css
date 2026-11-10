@@ -831,3 +831,5 @@ code {
 #artwork { display: none !important; }
 
 .desktop-mode .stage { min-height: 0; }
+
+.mode-controls { display:flex; flex-wrap:wrap; gap:8px; padding:0 24px 16px; }
