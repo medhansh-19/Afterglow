@@ -2,6 +2,7 @@ param([ValidateSet('modern','legacy')][string]$Layout = 'modern')
 $ErrorActionPreference = 'Stop'
 # Native fixture for hosted Windows sessions without an Explorer shell. This is
 # explicitly not Explorer; production code and IPC are left unchanged.
+[Console]::WriteLine('fixture:starting')
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -29,6 +30,7 @@ public static class DesktopHostFixture {
   static IntPtr Window(string cls,IntPtr parent,uint ex,bool visible) {
     var style=parent==IntPtr.Zero ? 0x80000000u : 0x40000000u;
     var window=CreateWindowEx(ex,cls,"Afterglow native desktop fixture",style|(visible?0x10000000u:0),parent==IntPtr.Zero?left:0,parent==IntPtr.Zero?top:0,width,height,parent,IntPtr.Zero,instance,IntPtr.Zero);
+    Console.WriteLine("fixture:window:"+cls+":"+window);
     if(window==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     return window;
   }
@@ -62,4 +64,5 @@ public static class DesktopHostFixture {
   }
 }
 '@
+[Console]::WriteLine('fixture:compiled')
 [DesktopHostFixture]::Run($Layout -eq 'modern')

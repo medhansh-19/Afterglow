@@ -243,7 +243,7 @@ public static class AfterglowSmokeWindow {
     Start-Sleep -Milliseconds 1500
     if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) {
       $desktopHost = "native-$DesktopLayout-fixture"
-      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
+      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
       Write-Warning 'Hosted runner has no Explorer shell. Testing a native host fixture; real Explorer remains unverified.'
       Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; [AfterglowSmokeWindow]::FindWindow('Progman', $null) -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
@@ -271,7 +271,7 @@ public static class AfterglowSmokeWindow {
     if ($desktopFixture) {
       Stop-Process -Id $desktopFixture.Id -Force
       $desktopFixture.WaitForExit(5000) | Out-Null
-      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
+      $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
     } else {
       Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
