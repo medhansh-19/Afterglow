@@ -98,6 +98,18 @@ public static class AfterglowSmokeWindow {
     WindowProc top = delegate(IntPtr window, IntPtr data) { callback(window,data); EnumChildWindows(window,callback,data); return true; };
     EnumWindows(top,IntPtr.Zero); return found;
   }
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+  public static void RevealFixture() {
+    if (ExpectedOwner == 0) return;
+    // Fixture screenshot only: unrelated hosted terminal windows must not
+    // occlude the synthetic desktop. Production wallpaper z-order is unchanged.
+    WindowProc callback = delegate(IntPtr window, IntPtr data) {
+      uint pid; GetWindowThreadProcessId(window,out pid);
+      if(pid==ExpectedOwner && IsWindowVisible(window)) SetWindowPos(window,IntPtr.Zero,0,0,0,0,0x13);
+      return true;
+    };
+    EnumWindows(callback,IntPtr.Zero);
+  }
   public static string ValidateDesktop(int pid) {
     var previous = SetThreadDpiAwarenessContext(new IntPtr(-4));
     try {
@@ -264,6 +276,7 @@ public static class AfterglowSmokeWindow {
     Invoke-Button 'Desktop'
     Wait-Until { $reason = [AfterglowSmokeWindow]::ValidateDesktop($application.Id); if ($reason -ne $script:lastDesktopReason) { Write-Host ('Desktop validation: ' + $reason); $script:lastDesktopReason = $reason }; (Get-Content $log -Raw).Contains('desktop-ready') -and $reason -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
+    [AfterglowSmokeWindow]::RevealFixture()
     if ($baselinePixels -gt 40) {
       Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20
       $desktopPixelsVerified = $true
