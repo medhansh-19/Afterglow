@@ -709,11 +709,11 @@ function drawCard() {
     c.fillText("Choose your favorite lines.", 100, 650);
   }
 }
-async function captureMap(copy = false) {
+async function captureMap(copy = false, screenshot = false) {
   if (!track) throw Error("Connect a song first.");
   await saveImage(
-    await visual.drawMap(track, lastLine, effective().color),
-    "Afterglow-lyric-map.png",
+    await visual.drawMap(track, lastLine, effective().color, screenshot),
+    screenshot ? "Afterglow-screenshot.png" : "Afterglow-lyric-map.png",
     copy,
   );
 }
@@ -815,7 +815,7 @@ async function action(id) {
       persist();
       return renderPanel();
     case "capture-screen":
-      return captureMap();
+      return captureMap(false, true);
     case "capture-map":
       return captureMap();
     case "copy-map":
