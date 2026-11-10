@@ -287,6 +287,8 @@ public static class AfterglowSmokeWindow {
     $open = Start-Process $AppPath -PassThru
     $open.WaitForExit(10000) | Out-Null
     Wait-Until { [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Tray-style restore did not show controls over the wallpaper.'
+    # Desktop was entered from Controls; its dialog remains open on restore.
+    Invoke-Button 'Close controls'
     Invoke-Button 'Controls'
     if ([AfterglowSmokeWindow]::ValidateDesktop($application.Id) -ne '') { throw 'Opening Controls removed the desktop wallpaper.' }
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
