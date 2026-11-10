@@ -235,13 +235,17 @@ async fn audio_stop(app: tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())
 }
+#[cfg(target_os = "windows")]
 #[tauri::command]
 async fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    return tauri::async_runtime::spawn_blocking(move || windows::desktop::set_wait(&app, enabled))
+    tauri::async_runtime::spawn_blocking(move || windows::desktop::set_wait(&app, enabled))
         .await
-        .map_err(|error| error.to_string())?;
-    #[cfg(not(target_os = "windows"))]
+        .map_err(|error| error.to_string())?
+}
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    // GTK desktop attachment must retain its main-thread command context.
     desktop::set(&app, enabled)
 }
 #[tauri::command]
