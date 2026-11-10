@@ -4,11 +4,38 @@
   "mainBinaryName": "afterglow-windows",
   "identifier": "local.medhansh.afterglow.windows",
   "bundle": {
-    "targets": ["nsis"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "windows": {
-      "webviewInstallMode": {"type": "downloadBootstrapper", "silent": true},
-      "nsis": {"installMode": "currentUser", "languages": ["English"]}
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ]
+      }
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Afterglow",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 480,
+        "backgroundColor": "#09090b",
+        "maximized": true
+      }
+    ]
   }
 }
