@@ -240,13 +240,21 @@ public static class AfterglowSmokeWindow {
     }
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-    if ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) { Start-Process "$env:WINDIR/explorer.exe" | Out-Null }
-    Start-Sleep -Milliseconds 1500
-    if ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) {
+    # Hosted CI has no supported interactive shell. Keep this explicitly a
+    # native fixture test instead of racing a partially initialized Explorer.
+    $hostedFixture = $env:GITHUB_ACTIONS -eq 'true'
+    if ($hostedFixture) {
+      Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
+      Wait-Until { [AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero } 'Hosted Explorer did not release its desktop.'
+    } elseif ([AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) {
+      Start-Process "$env:WINDIR/explorer.exe" | Out-Null
+      Start-Sleep -Milliseconds 1500
+    }
+    if ($hostedFixture -or [AfterglowSmokeWindow]::FindByClass('Progman') -eq [IntPtr]::Zero) {
       $desktopHost = "native-$DesktopLayout-fixture"
       $desktopFixture = Start-Process (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile','-NonInteractive','-File',"$PSScriptRoot/desktop-host.ps1",'-Layout',$DesktopLayout) -NoNewWindow -RedirectStandardOutput (Join-Path $OutputDirectory 'fixture-stdout.log') -RedirectStandardError (Join-Path $OutputDirectory 'fixture-stderr.log') -PassThru
       [AfterglowSmokeWindow]::ExpectedOwner = [uint32]$desktopFixture.Id
-      Write-Warning 'Hosted runner has no Explorer shell. Testing a native host fixture; real Explorer remains unverified.'
+      Write-Warning 'Testing a native desktop-host fixture; real Explorer remains unverified.'
       Wait-Until { if ($desktopFixture.HasExited) { throw ('Native desktop fixture exited: ' + (Get-Content (Join-Path $OutputDirectory 'fixture-stderr.log') -Raw)) }; [AfterglowSmokeWindow]::FindByClass('Progman') -ne [IntPtr]::Zero } 'The native desktop host fixture did not start.'
     } else { $desktopHost = 'Explorer'; [AfterglowSmokeWindow]::ExpectedOwner = 0 }
     $demoCount = @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count
