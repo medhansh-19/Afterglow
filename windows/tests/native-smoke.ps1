@@ -176,10 +176,16 @@ public static class AfterglowSmokeWindow {
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     $script:button.SetFocus()
     Start-Sleep -Milliseconds 150
-    $bounds = $script:button.Current.BoundingRectangle
-    [AfterglowSmokeWindow]::SetCursorPos([int]($bounds.X + $bounds.Width / 2), [int]($bounds.Y + $bounds.Height / 2)) | Out-Null
-    [AfterglowSmokeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
-    [AfterglowSmokeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    if ($desktopFixture) {
+      # The fixture is topmost for deterministic shell discovery; its root must
+      # not intercept pointer input intended for the focused app control.
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    } else {
+      $bounds = $script:button.Current.BoundingRectangle
+      [AfterglowSmokeWindow]::SetCursorPos([int]($bounds.X + $bounds.Width / 2), [int]($bounds.Y + $bounds.Height / 2)) | Out-Null
+      [AfterglowSmokeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+      [AfterglowSmokeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    }
     Start-Sleep -Milliseconds 150
   }
   $application = Start-Process -FilePath $AppPath -PassThru
