@@ -33,7 +33,7 @@ fn smoke_log(message: &str) {
 static LYRICS_LOCK: Mutex<()> = Mutex::new(());
 static LYRICS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use base64::Engine;
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 async fn artwork(bus: String) -> Result<Option<String>, String> {

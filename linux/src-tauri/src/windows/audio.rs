@@ -124,7 +124,6 @@ pub fn streams() -> Result<Vec<Stream>, String> {
 struct MtaClient(IAudioClient);
 unsafe impl Send for MtaClient {}
 struct Activation {
-    _params: Box<AUDIOCLIENT_ACTIVATION_PARAMS>,
     variant: Box<PROPVARIANT>,
 }
 // Read-only, heap-stable activation memory stays alive through callback release.
@@ -154,7 +153,7 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
     }
 }
 fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient, String> {
-    let mut params = Box::new(AUDIOCLIENT_ACTIVATION_PARAMS {
+    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
         Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
             ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
@@ -162,7 +161,18 @@ fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient
                 ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
             },
         },
-    });
+    };
+    // PROPVARIANT's destructor calls PropVariantClear, which owns VT_BLOB data
+    // through CoTaskMemFree. A borrowed Rust Box here would be freed twice by
+    // incompatible allocators when activation completes (heap corruption).
+    let storage = unsafe { CoTaskMemAlloc(std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>()) }
+        .cast::<AUDIOCLIENT_ACTIVATION_PARAMS>();
+    if storage.is_null() {
+        return Err("Windows could not allocate player capture parameters.".into());
+    }
+    unsafe {
+        storage.write(params);
+    }
     let variant = Box::new(PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
@@ -170,17 +180,14 @@ fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient
                 Anonymous: PROPVARIANT_0_0_0 {
                     blob: BLOB {
                         cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                        pBlobData: (&mut *params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast(),
+                        pBlobData: storage.cast(),
                     },
                 },
                 ..Default::default()
             }),
         },
     });
-    let activation = Arc::new(Activation {
-        _params: params,
-        variant,
-    });
+    let activation = Arc::new(Activation { variant });
     let (sender, receiver) = mpsc::sync_channel(1);
     let handler: IActivateAudioInterfaceCompletionHandler = Completion {
         sender: Mutex::new(Some(sender)),
@@ -507,21 +514,23 @@ mod tests {
         // Real Windows APIs, restricted to this test process; no microphone,
         // other application, saved audio or manufactured synchronization.
         let _apartment = crate::windows::Apartment::new().expect("Windows audio apartment");
-        let generation = AtomicU64::new(1);
-        let client = activate(std::process::id(), &generation, 1)
-            .expect("Windows process-loopback activation");
-        let (capture, _event) =
-            initialize_loopback(&client).expect("Production float/event capture format");
-        unsafe { client.Start() }.expect("Windows capture start");
-        let packet = unsafe { capture.GetNextPacketSize() };
-        let stopped = unsafe { client.Stop() };
-        assert!(
-            packet.is_ok(),
-            "Reading the real capture client failed: {packet:?}"
-        );
-        assert!(
-            stopped.is_ok(),
-            "Stopping the real capture client failed: {stopped:?}"
-        );
+        for _ in 0..3 {
+            let generation = AtomicU64::new(1);
+            let client = activate(std::process::id(), &generation, 1)
+                .expect("Windows process-loopback activation");
+            let (capture, _event) =
+                initialize_loopback(&client).expect("Production float/event capture format");
+            unsafe { client.Start() }.expect("Windows capture start");
+            let packet = unsafe { capture.GetNextPacketSize() };
+            let stopped = unsafe { client.Stop() };
+            assert!(
+                packet.is_ok(),
+                "Reading the real capture client failed: {packet:?}"
+            );
+            assert!(
+                stopped.is_ok(),
+                "Stopping the real capture client failed: {stopped:?}"
+            );
+        }
     }
 }
