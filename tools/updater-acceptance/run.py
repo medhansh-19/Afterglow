@@ -103,6 +103,25 @@ def accept(platform, packages, runner, baseline, output):
                     except (OSError,subprocess.SubprocessError): pass
                     time.sleep(1)
                 else: raise AssertionError('Native NSIS updater did not install the new version')
+                # NSIS writes the app EXE before copying the bundled Swift runtime.
+                # Wait for every updater installer process, not just FileVersion.
+                wait_env = dict(os.environ, AFTERGLOW_ACCEPTANCE_EXE=str(executable), AFTERGLOW_ACCEPTANCE_VERSION=version)
+                subprocess.run(['pwsh','-NoProfile','-Command', r'''
+                  $ErrorActionPreference = 'Stop'
+                  $deadline = [DateTime]::UtcNow.AddSeconds(180)
+                  do {
+                    $installers = @(Get-CimInstance Win32_Process | Where-Object {
+                      $_.Name -ne 'pwsh.exe' -and $_.Name -ne 'python.exe' -and (
+                        $_.Name -like 'Afterglow*setup*' -or
+                        ($_.CommandLine -and $_.CommandLine -match '(?i)/UPDATE' -and $_.ExecutablePath -like '*afterglow*')
+                      )
+                    })
+                    if ($installers.Count -eq 0) { Start-Sleep -Seconds 2; break }
+                    Start-Sleep -Seconds 1
+                  } while ([DateTime]::UtcNow -lt $deadline)
+                  if ($installers.Count -ne 0) { throw 'Native updater installer did not finish.' }
+                  if (-not (Get-Item $env:AFTERGLOW_ACCEPTANCE_EXE).VersionInfo.FileVersion.StartsWith($env:AFTERGLOW_ACCEPTANCE_VERSION)) { throw 'Installed version differs.' }
+                '''], env=wait_env, check=True, timeout=200)
                 assert digest(library)==saved, 'Upgrade modified the saved library'
                 windows_smoke(executable,output/'after')
                 assert json.loads(library.read_text(encoding='utf-8-sig'))['colors'][0]['name']=='Updater acceptance'
