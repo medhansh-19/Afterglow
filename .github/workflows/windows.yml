@@ -135,7 +135,6 @@ jobs:
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop
-          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native-legacy' -CheckDesktop -DesktopLayout legacy
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -165,3 +164,28 @@ jobs:
         with:
           path: .build
           key: ${{ steps.swift-cache.outputs.cache-primary-key }}
+
+  legacy-desktop:
+    needs: windows
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/download
+      - name: Validate legacy desktop in an isolated installed session
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem windows/download -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Installer missing' }
+          $install = Join-Path $env:RUNNER_TEMP 'afterglow-legacy-installed'
+          $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
+          if ($setup.ExitCode -ne 0) { throw 'Installer failed' }
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native-legacy -CheckDesktop -DesktopLayout legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-legacy-validation
+          path: windows/test-results/native-legacy

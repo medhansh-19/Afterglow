@@ -74,6 +74,8 @@ public static class AfterglowSmokeWindow {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint x,uint y,uint data,UIntPtr extra);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
   public static IntPtr FindByClass(string cls) { return FindWindow(cls,null); }
   [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
@@ -174,7 +176,11 @@ public static class AfterglowSmokeWindow {
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     $script:button.SetFocus()
     Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    $bounds = $script:button.Current.BoundingRectangle
+    [AfterglowSmokeWindow]::SetCursorPos([int]($bounds.X + $bounds.Width / 2), [int]($bounds.Y + $bounds.Height / 2)) | Out-Null
+    [AfterglowSmokeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+    [AfterglowSmokeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 150
   }
   $application = Start-Process -FilePath $AppPath -PassThru
   Wait-Until { $application.Refresh(); $application.MainWindowHandle -ne [IntPtr]::Zero } 'Afterglow native main window did not appear.'
