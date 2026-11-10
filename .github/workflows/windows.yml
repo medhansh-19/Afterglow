@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['windows/**', 'linux/**', '.cargo/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', 'THIRD_PARTY_NOTICES.md', '.github/workflows/windows.yml']
   push:
-    branches: ['codex/windows-app']
+    branches: ['codex/windows-app', 'codex/windows-desktop']
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,6 +40,7 @@ jobs:
           done
           python windows/tests/ui.py
           python windows/tests/regressions-ui.py
+          python windows/tests/desktop-ui.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -124,7 +125,7 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
-          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native'
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop
       - name: Stage preview packages and instructions
         if: always()
         run: |

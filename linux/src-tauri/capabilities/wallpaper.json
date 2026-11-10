@@ -1,6 +1,6 @@
 {
   "identifier": "wallpaper",
   "description": "Display-only wallpaper renderer",
-  "windows": ["wallpaper"],
+  "windows": ["wallpaper", "wallpaper-*"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

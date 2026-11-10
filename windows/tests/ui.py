@@ -30,7 +30,7 @@ with sync_playwright() as p:
     expect(page.locator("#title")).to_have_text("Afterglow")
     page.locator("#seek").fill("3")
     page.locator("#seek").dispatch_event("change")
-    page.get_by_role("button", name="Pause", exact=True).click()
+    page.evaluate("document.activeElement.blur()");page.keyboard.press("Space")
     expect(page.locator("#graph svg")).to_be_visible()
     paused = page.locator("#time").inner_text()
     page.wait_for_timeout(1100)

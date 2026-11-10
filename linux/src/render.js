@@ -68,7 +68,7 @@ export function renderer(canvas, graph, clock) {
       0,
       w * 0.5,
       h * 0.5,
-      w * 0.75,
+      Math.hypot(w, h) * .55,
     );
     glow.addColorStop(0, `${settings.color}18`);
     glow.addColorStop(1, "#09090b00");

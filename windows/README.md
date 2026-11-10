@@ -4,7 +4,7 @@ A Windows 11 x64 development preview built from the same local Tauri interface a
 
 ## Install
 
-Download the Windows 0.1.1 setup executable from [GitHub Releases](https://github.com/medhansh-19/Afterglow/releases). Run it to install or update the existing preview; local preferences are preserved. Build artifacts are also available from the **Windows preview** workflow. The installer bundles the lyric helper and its Swift runtime; users do not need to install Swift, Rust, Node.js or Python. WebView2 is required and the installer can bootstrap Microsoft's runtime when it is missing.
+Download the Windows 0.1.2 setup executable from [GitHub Releases](https://github.com/medhansh-19/Afterglow/releases). Run it to install or update the existing preview; local preferences are preserved. Build artifacts are also available from the **Windows preview** workflow. The installer bundles the lyric helper and its Swift runtime; users do not need to install Swift, Rust, Node.js or Python. WebView2 is required and the installer can bootstrap Microsoft's runtime when it is missing.
 
 This preview is unsigned and has no automatic updater. Users of earlier downloads must install the new setup executable manually; publishing a release cannot update an already installed copy. Keep the installer and its SHA256 checksum together. Use Windows Settings → Apps to uninstall it. App data is kept separately from the install directory.
 
@@ -16,7 +16,7 @@ Use Controls for lyric imports, recording alternatives, timing adjustment, appea
 
 Beat sync uses Windows process loopback, capturing only the chosen process tree. Select the player's audio process explicitly: Windows media-session identities are not process IDs. A browser process tree can include several tabs. Capture continues while Controls and its live preview are open. Switching audio streams stops the previous capture before starting the selected stream. Capture stops when playback pauses, the window is hidden without a visible wallpaper, or Windows sleeps. Audio is analyzed locally, without microphone capture, audio files or uploads. DRM-protected playback or a player that does not expose an audio session may be unavailable or silent.
 
-Desktop mode creates a separate, click-through view behind Explorer's desktop icons. The system tray restores the main window and offers Quit. Explorer restarts, multiple monitors, scaling and third-party desktop shells need hardware validation; see the feature audit.
+Desktop mode creates a monitor-sized, click-through view behind Explorer’s desktop icons on each connected display. Wallpaper has its own clock and native audio events, so its words and waves keep moving while the controls window is hidden. Display/DPI changes and Explorer restarts recreate the views automatically; failed attachment leaves the controls available. The system tray restores the main window and offers Quit. Physical mixed-DPI/multiple-monitor hardware and third-party desktop shells still need validation; see the feature audit.
 
 Local shortcuts use Ctrl+K for Controls and Ctrl+Shift+F/D/B/A/M for Focus, Desktop, Beat sync, Appearance and lyric-map capture. Enable global shortcuts in Controls → Help. A conflicting binding produces an error. Lyric cards and frozen maps can be saved as PNG or copied as images. The Mac screenshot companion and native share sheet are not currently reproduced; use the explicit capture and export actions.
 
@@ -52,3 +52,5 @@ npm run tauri -- dev --config ../windows/tauri.windows.conf.json
 ```
 
 Browser preview and macOS checks exercise portable logic only. Windows CI compiles the native adapters, runs Windows tests and packages the app. Real Spotify/Apple Music, capture isolation, Explorer recovery, sleep/wake and hardware power behavior remain separate acceptance tests. See [PLAN.md](PLAN.md) for architecture and official API sources.
+
+The listening footer follows the Mac layout: centered title and artist above progress/time, with transport controls in Controls → Player. Beat sync has a real switch in Appearance and Beat sync settings; known player audio is selected only when unambiguous. Waiting, silence and missing audio are labelled separately from a live signal.

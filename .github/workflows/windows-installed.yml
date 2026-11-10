@@ -8,8 +8,12 @@ on:
       run_id:
         description: Windows preview workflow containing the installer
         required: true
+      release_tag:
+        description: Versioned Windows draft release to stage
+        default: windows-v0.1.1
+        required: false
       stage_release:
-        description: Upload a verified build to the Windows 0.1.1 draft and versioned website asset
+        description: Upload a verified build to its Windows draft and versioned website asset
         type: boolean
         default: false
       validation_run_id:
@@ -115,12 +119,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN: ${{ inputs.run_id }}
       VALIDATION_RUN: ${{ inputs.validation_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
       - name: Require the successful build and clean-machine upgrade checks
         run: |
           python3 - <<'PYCODE'
-          import json, os, subprocess
+          import json, os, re, subprocess
           def gh(*args): return json.loads(subprocess.check_output(['gh', *args], text=True))
           for name in ['BUILD_RUN', 'VALIDATION_RUN']:
               assert os.environ[name].isdigit(), 'Use numeric workflow run IDs.'
@@ -129,7 +134,8 @@ jobs:
               if name == 'BUILD_RUN': build = run
           jobs = gh('api', 'repos/medhansh-19/Afterglow/actions/runs/' + os.environ['VALIDATION_RUN'] + '/jobs')['jobs']
           assert all(any(j['name'] == n and j['conclusion'] == 'success' for j in jobs) for n in ['installed', 'upgrade']), 'Clean install and upgrade must both pass.'
-          release = gh('release', 'view', 'windows-v0.1.1', '--json', 'isDraft,targetCommitish')
+          assert re.fullmatch(r'windows-v[0-9]+\.[0-9]+\.[0-9]+', os.environ['RELEASE_TAG']), 'Use a Windows version tag.'
+          release = gh('release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,targetCommitish')
           assert release['isDraft'] and release['targetCommitish'] == build['head_sha'], 'Stage only the tested draft source.'
           PYCODE
       - uses: actions/download-artifact@v4
@@ -142,15 +148,19 @@ jobs:
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
-          import hashlib, shutil
+          import hashlib, os, shutil
           source = next(Path('windows/download/packages').glob('*setup.exe'))
           digest = hashlib.sha256(source.read_bytes()).hexdigest()
-          assert digest == 'f9a877d71ba2f2ced8ac83a668ebc4650e964bba6706b0a1676799967766e6c7', 'Installer differs from the tested 0.1.1 artifact.'
+          version = os.environ['RELEASE_TAG'].removeprefix('windows-v')
+          assert source.name == f'Afterglow_{version}_x64-setup.exe', 'Installer version must match the release.'
+          manifest = (source.parent/'SHA256SUMS.txt').read_text(encoding='utf-8-sig')
+          assert any(line.split() == [digest, source.name] for line in manifest.splitlines()), 'Installer differs from its build manifest.'
+          print('Verified installer SHA256: ' + digest)
           stage = Path('windows/stage'); stage.mkdir()
           shutil.copy2(source, stage/'Afterglow-windows-x64-setup.exe')
           shutil.copy2('windows/VALIDATION.md', stage/'VALIDATION.md')
           (stage/'SHA256SUMS.txt').write_text(digest + '  Afterglow-windows-x64-setup.exe\n')
-          shutil.copy2(source, stage/'Afterglow-windows-0.1.1-x64-setup.exe')
+          shutil.copy2(source, stage/f'Afterglow-windows-{version}-x64-setup.exe')
           PYCODE
-          gh release upload windows-v0.1.1 windows/stage/Afterglow-windows-x64-setup.exe windows/stage/SHA256SUMS.txt windows/stage/VALIDATION.md --clobber
-          gh release upload v3.0.7-preview.1 windows/stage/Afterglow-windows-0.1.1-x64-setup.exe --clobber
+          gh release upload "$RELEASE_TAG" windows/stage/Afterglow-windows-x64-setup.exe windows/stage/SHA256SUMS.txt windows/stage/VALIDATION.md --clobber
+          gh release upload v3.0.7-preview.1 "windows/stage/Afterglow-windows-${RELEASE_TAG#windows-v}-x64-setup.exe" --clobber

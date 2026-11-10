@@ -2,6 +2,7 @@
 mod artwork;
 mod audio;
 mod desktop;
+mod display;
 mod player;
 mod power;
 mod shortcuts;
@@ -240,8 +241,11 @@ fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
 }
 #[tauri::command]
 fn publish_display(app: tauri::AppHandle, state: serde_json::Value) -> Result<(), String> {
-    app.emit_to("wallpaper", "display-state", state)
-        .map_err(|e| e.to_string())
+    display::publish(&app, state)
+}
+#[tauri::command]
+fn wallpaper_ready(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    display::ready(&app, window.label())
 }
 #[tauri::command]
 fn disable_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
@@ -314,7 +318,11 @@ fn main() {
                 if let Some(index) = args.iter().position(|a| a == "--action") {
                     if let Some(action) = args.get(index + 1) {
                         smoke_log(&format!("single-instance:{action}"));
-                        if app.get_webview_window("wallpaper").is_none() {
+                        if !app
+                            .webview_windows()
+                            .keys()
+                            .any(|label| display::is_wallpaper(label))
+                        {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -334,10 +342,13 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Lifecycle::default())
+        .manage(display::Display::default())
         .manage(audio::Capture::default())
         .manage(power::Power::default())
         .manage(shortcuts::Shortcuts::default())
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            app.manage(windows::desktop::Desktop::default());
             power::start(app.handle().clone());
             let arguments: Vec<String> = std::env::args().collect();
             if let Some(index) = arguments.iter().position(|a| a == "--action") {
@@ -388,11 +399,7 @@ fn main() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
-                    if window
-                        .app_handle()
-                        .get_webview_window("wallpaper")
-                        .is_none()
-                    {
+                    if !windows::desktop::active(window.app_handle()) {
                         window.app_handle().state::<audio::Capture>().stop();
                     }
                 }
@@ -410,6 +417,7 @@ fn main() {
             audio_stop,
             desktop_mode,
             publish_display,
+            wallpaper_ready,
             enable_shortcuts,
             disable_shortcuts,
             ui_ready,
