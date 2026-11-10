@@ -14,7 +14,11 @@ function wake() {
   document.documentElement.style.setProperty("--desktop-inset-bottom", `${inset}px`);
   dirty = true;
   clearTimeout(timer); cancelAnimationFrame(frame);
-  frame = requestAnimationFrame(draw);
+  // A fully occluded wallpaper may not receive rAF while Controls covers it.
+  // Prepare its first bitmap synchronously so the visibility handshake cannot
+  // deadlock waiting for the window it is meant to hide.
+  if (!presented && receivedState) draw(performance.now());
+  else frame = requestAnimationFrame(draw);
 }
 await listen("display-state", (event) => { timeline.receive(event.payload, performance.now()); receivedState = true; wake(); });
 await listen("audio-frame", (event) => { timeline.audio(event.payload, performance.now()); wake(); });

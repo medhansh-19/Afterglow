@@ -60,5 +60,14 @@ with sync_playwright() as p:
  page.wait_for_function("document.querySelector('#waves').getContext('2d').getImageData(0,0,1,1).data[0] < 100")
  assert not errors,errors
  (out/'desktop-report.json').write_text(json.dumps({'passed':True,'nativeBoundary':'mocked','sizes':['16:10','16:9','ultrawide','portrait','4K','200% short laptop'],'errors':errors},indent=2))
+ # Native background WebViews can be fully occluded by the main window. The
+ # first-state/first-bitmap handshake must not depend on an animation callback.
+ occluded=browser.new_page(viewport={'width':1200,'height':800})
+ occluded.add_init_script('('+mock+')()')
+ occluded.add_init_script('window.requestAnimationFrame=()=>1;window.cancelAnimationFrame=()=>{};')
+ occluded.goto('http://127.0.0.1:1420/?platform=windows');occluded.wait_for_load_state('networkidle')
+ occluded.wait_for_function('fixture.presented === true')
+ expect(occluded.locator('#title')).to_have_text('Japji Sahib')
+ occluded.close()
  print('PASS reference footer, exact display bounds, ready handshake, independent lyric timing, pause and direct-audio event handling')
  browser.close()
