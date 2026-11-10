@@ -1,0 +1,36 @@
+name: macOS updater build
+on:
+  pull_request:
+    paths: ['Sources/Afterglow/**', 'Sources/AfterglowCore/**', 'Tests/**', 'Resources/**', 'Package.*', 'build.sh', 'tools/sign-local.sh', 'tools/macos-*', 'tools/check-macos-*', 'tools/verify-sparkle-signature.swift', 'tools/tests/test_macos*.py', '.github/workflows/macos.yml']
+  push:
+    branches: ['codex/in-app-updates']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.2.1'
+      - name: Core checks
+        run: swift run CoreChecks
+      - name: Feed and package checks
+        run: python3 -m unittest discover -s tools/tests -p 'test_macos*.py'
+      - name: Build universal development candidate
+        env:
+          AFTERGLOW_SIGNING_IDENTITY: '-'
+          AFTERGLOW_UNIVERSAL: '1'
+        run: zsh build.sh
+      - name: Verify embedded updater and launch packaged app
+        run: python3 tools/check-macos-updater.py build/Afterglow.zip --launch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afterglow-macos-universal-candidate
+          path: build/Afterglow.zip

@@ -1,9 +1,15 @@
-name: Stage signed Windows update
+name: Stage signed desktop update
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: Desktop platform to stage
+        type: choice
+        options: [windows, linux, macos]
+        default: windows
+        required: true
       run_id:
-        description: Successful Windows preview workflow run on this exact commit
+        description: Successful platform preview workflow run on this exact commit
         required: true
       tag:
         description: Immutable release tag (for example windows-v0.2.1)
@@ -13,7 +19,7 @@ permissions:
   actions: read
 jobs:
   stage:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.platform == 'macos' && 'macos-15' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,20 +29,43 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.run_id }}
+          PLATFORM: ${{ inputs.platform }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
-          node -e 'const r=require("./run.json"); if(r.conclusion!=="success" || r.head_sha!==process.env.GITHUB_SHA || r.path!==".github/workflows/windows.yml") throw Error("Require passing Windows workflow on this exact commit")'
+          node -e 'const r=require("./run.json"); if(r.conclusion!=="success" || r.head_sha!==process.env.GITHUB_SHA || r.path!==`.github/workflows/${process.env.PLATFORM}.yml`) throw Error("Require passing platform workflow on this exact commit")'
+      - name: Resolve Sparkle tools
+        if: inputs.platform == 'macos'
+        run: swift package resolve
       - uses: actions/download-artifact@v4
         with:
-          name: afterglow-windows-x86_64-preview
-          path: staged
+          name: ${{ inputs.platform == 'macos' && 'afterglow-macos-universal-candidate' || inputs.platform == 'linux' && 'afterglow-linux-x86_64-preview' || 'afterglow-windows-x86_64-preview' }}
+          path: ${{ inputs.platform == 'macos' && 'staged/packages' || 'staged' }}
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
+      - name: Verify Mac candidate and generate signed appcast
+        if: inputs.platform == 'macos'
+        env:
+          MACOS_SPARKLE_PRIVATE_KEY: ${{ secrets.MACOS_SPARKLE_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python3 tools/check-macos-updater.py staged/packages/Afterglow.zip
+          python3 tools/macos-appcast.py staged/packages/Afterglow.zip "$RELEASE_TAG" --output staged/packages/appcast.xml
       - name: Generate manifest and create draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          PLATFORM: ${{ inputs.platform }}
         run: |
-          VERSION=$(node -p 'require("./windows/tauri.windows.conf.json").version')
-          node windows/scripts/update-manifest.mjs staged/packages "$VERSION" "$RELEASE_TAG"
-          gh release create "$RELEASE_TAG" staged/packages/*.exe staged/packages/*.sig staged/packages/windows-latest.json --draft --target "$GITHUB_SHA" --title "Afterglow $VERSION for Windows" --notes "Signed Windows update. Validate old-to-new installation and settings preservation before publishing or promoting the update feed."
+          if [ "$PLATFORM" = linux ]; then
+            VERSION=$(node -p 'require("./linux/src-tauri/tauri.conf.json").version')
+            node linux/scripts/update-manifest.mjs staged/packages "$VERSION" "$RELEASE_TAG"
+            gh release create "$RELEASE_TAG" staged/packages/*.deb staged/packages/*.AppImage staged/packages/*.sig staged/packages/linux-latest.json --draft --target "$GITHUB_SHA" --title "Afterglow $VERSION for Linux" --notes "Signed Debian and AppImage update. Test installation, authorization and settings preservation before publishing and promoting linux-updates."
+          elif [ "$PLATFORM" = windows ]; then
+            VERSION=$(node -p 'require("./windows/tauri.windows.conf.json").version')
+            node windows/scripts/update-manifest.mjs staged/packages "$VERSION" "$RELEASE_TAG"
+            gh release create "$RELEASE_TAG" staged/packages/*.exe staged/packages/*.sig staged/packages/windows-latest.json --draft --target "$GITHUB_SHA" --title "Afterglow $VERSION for Windows" --notes "Signed Windows update. Validate installation and settings preservation before publishing and promoting windows-updates."
+          elif [ "$PLATFORM" = macos ]; then
+            gh release create "$RELEASE_TAG" staged/packages/Afterglow.zip staged/packages/appcast.xml --draft --target "$GITHUB_SHA" --title "Afterglow for macOS" --notes "Signed universal macOS update candidate. CI candidate builds are ad-hoc signed and not notarized. Validate old-to-new installation, Gatekeeper and settings preservation before publishing or promoting macos-updates."
+          else
+            exit 1
+          fi

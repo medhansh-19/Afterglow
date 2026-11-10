@@ -1,4 +1,4 @@
-//! Windows signed updates. No renderer-controlled URLs or installation commands.
+//! Signed Windows and Linux updates. No renderer-controlled URLs or installation commands.
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -63,6 +63,7 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
     std::thread::spawn(move || {
         let _guard = BusyGuard;
         let mut downloading = false;
+        let mut installing = false;
         let result: Result<(), String> = tauri::async_runtime::block_on(async {
             let updater = app
                 .updater_builder()
@@ -98,8 +99,12 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
             }
             let bytes = bytes?; // Tauri verifies the signature before returning bytes.
             if confirm(&app, format!("Afterglow {} is downloaded and verified.\n\nClose Afterglow and install the update now?", update.version), "Install and restart") {
+                installing = true;
                 app.state::<crate::audio::Capture>().stop();
                 update.install(bytes).map_err(|e| e.to_string())?;
+                // Windows' NSIS installer handles relaunch. Linux updates in place.
+                #[cfg(target_os = "linux")]
+                app.restart();
             }
             Ok(())
         });
@@ -109,7 +114,11 @@ pub fn check(app: tauri::AppHandle, manual: bool) {
                 *prompted = None;
             }
             if manual || downloading {
-                message(&app, "Couldn’t check or install the update. Check your connection and try Check for Updates again. Your current installation has been preserved.");
+                if installing {
+                    message(&app, "Couldn’t finish installing the update. Check installation permissions and try again. If needed, reinstall the latest Afterglow package; your library and settings are stored separately.");
+                } else {
+                    message(&app, "Couldn’t check or verify the update. Check your connection and try Check for Updates again. Your current installation has not been changed.");
+                }
             }
         }
     });

@@ -5,7 +5,6 @@ mod desktop;
 mod player;
 mod power;
 mod shortcuts;
-#[cfg(target_os = "windows")]
 mod updates;
 #[cfg(target_os = "windows")]
 mod windows;
@@ -341,7 +340,6 @@ fn main() {
         .manage(shortcuts::Shortcuts::default())
         .setup(|app| {
             power::start(app.handle().clone());
-            #[cfg(target_os = "windows")]
             updates::setup(app)?;
             let arguments: Vec<String> = std::env::args().collect();
             if let Some(index) = arguments.iter().position(|a| a == "--action") {
@@ -358,7 +356,6 @@ fn main() {
                 MenuItem::with_id(app, "restore", "Return to Window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Afterglow", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &restore, &quit])?;
-            #[cfg(target_os = "windows")]
             updates::add_menu(app, &menu)?;
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             TrayIconBuilder::with_id("main")
@@ -366,7 +363,6 @@ fn main() {
                 .tooltip("Afterglow")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
-                    #[cfg(target_os = "windows")]
                     if updates::menu_event(app, event.id.as_ref()) {
                         return;
                     }

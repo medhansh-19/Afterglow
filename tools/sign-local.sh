@@ -3,8 +3,25 @@
 set -euo pipefail
 app="$1"
 entitlements="$2"
+# Sign nested code inside out. Never apply the host sandbox to Sparkle helpers.
+sign_bundle() {
+    local identity="$1"
+    local runtime_args=(--options runtime)
+    # Ad-hoc CI candidates are development builds; production identities retain Hardened Runtime.
+    if [[ "$identity" == '-' ]]; then runtime_args=(); fi
+    local framework="$app/Contents/Frameworks/Sparkle.framework"
+    local base="$framework/Versions/B"
+    if [[ -d "$framework" ]]; then
+        codesign --force "${runtime_args[@]}" --sign "$identity" "$base/XPCServices/Installer.xpc"
+        codesign --force "${runtime_args[@]}" --preserve-metadata=entitlements --sign "$identity" "$base/XPCServices/Downloader.xpc"
+        codesign --force "${runtime_args[@]}" --sign "$identity" "$base/Autoupdate"
+        codesign --force "${runtime_args[@]}" --sign "$identity" "$base/Updater.app"
+        codesign --force "${runtime_args[@]}" --sign "$identity" "$framework"
+    fi
+    codesign --force "${runtime_args[@]}" --sign "$identity" --entitlements "$entitlements" "$app"
+}
 if [[ -n "${AFTERGLOW_SIGNING_IDENTITY:-}" ]]; then
-    codesign --force --options runtime --sign "$AFTERGLOW_SIGNING_IDENTITY" --entitlements "$entitlements" "$app"
+    sign_bundle "$AFTERGLOW_SIGNING_IDENTITY"
     exit
 fi
 signing_dir="$HOME/Library/Application Support/Afterglow/Signing"
@@ -47,5 +64,4 @@ password="$(cat "$signing_dir/password")"
 security unlock-keychain -p "$password" "$keychain"
 fingerprint="$(security find-certificate -c "$identity" -Z "$keychain" | awk '/SHA-1 hash:/ {print $3; exit}')"
 # Select the certificate by hash, including self-signed local identities.
-codesign --force --options runtime --keychain "$keychain" --sign "$fingerprint" \
-    --entitlements "$entitlements" "$app"
+sign_bundle "$fingerprint"

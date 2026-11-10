@@ -61,3 +61,9 @@ xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash linux/tests/nati
 ```
 
 Run the exported packages on a clean machine without Swift installed before release. Linux CI records package and native-window results. Browser tests cover UI behavior but cannot establish WebKitGTK rendering, real player compatibility, audio isolation, portal approval or compositor behavior.
+
+## In-app updates (0.2.0 onward)
+
+The tray menu includes **Check for Updates…** and a persistent **Automatically Check for Updates** setting. Checks run after 30 seconds and every six hours. Downloads require consent and signed-version verification, followed by an **Install and restart** prompt. AppImages replace their own file (keep it in a writable location). Debian packages install using the platform updater's authorization flow; your desktop may ask for administrator authentication. Never run the app itself as root. Settings stay in the existing application data directory.
+
+The feed chooses the installed format: a Debian app receives a `.deb`, and an AppImage receives an AppImage. Raw binaries and unimplemented distribution formats have no generic update fallback. Earlier previews require one manual upgrade. See `docs/UPDATES.md` for release and acceptance procedures.

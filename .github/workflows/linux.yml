@@ -51,8 +51,13 @@ jobs:
         run: dbus-run-session -- bash linux/tests/mpris.sh
       - name: Selected-player audio isolation
         run: python3 linux/tests/audio_isolation.py
-      - name: Build Linux packages
+      - name: Native updater policy tests
+        run: cargo test --release --locked --manifest-path linux/src-tauri/Cargo.toml
+      - name: Build signed Linux packages
         working-directory: linux
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: npm run bundle
       - name: Launch native WebKitGTK application
         run: xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash linux/tests/native-smoke.sh linux/src-tauri/target/release/afterglow-linux
@@ -64,6 +69,8 @@ jobs:
           mkdir -p linux/test-results/packages
           cp linux/src-tauri/target/release/bundle/deb/*.deb linux/test-results/packages/ 2>/dev/null || true
           cp linux/src-tauri/target/release/bundle/appimage/*.AppImage linux/test-results/packages/ 2>/dev/null || true
+          cp linux/src-tauri/target/release/bundle/deb/*.sig linux/test-results/packages/ 2>/dev/null || true
+          cp linux/src-tauri/target/release/bundle/appimage/*.sig linux/test-results/packages/ 2>/dev/null || true
           cp linux/README.md linux/PARITY.md linux/VALIDATION.md linux/test-results/packages/
           cd linux/test-results/packages
           sha256sum *.deb *.AppImage > SHA256SUMS 2>/dev/null || true
