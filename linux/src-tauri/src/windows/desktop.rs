@@ -356,14 +356,22 @@ pub fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     // Every entry point (IPC, tray and shortcuts) uses this serialized worker.
     let app = app.clone();
     std::thread::spawn(move || {
-        let desktop = app.state::<Desktop>();
-        let _operation = desktop.operation.lock().unwrap();
-        if let Err(error) = set_inner(&app, enabled) {
+        if let Err(error) = set_wait(&app, enabled) {
+            let _ = app.emit_to(
+                "main",
+                "desktop-state",
+                serde_json::json!({"enabled":false}),
+            );
             crate::smoke_log(&format!("desktop-error:{error}"));
             let _ = app.emit_to("main", "desktop-error", error);
         }
     });
     Ok(())
+}
+pub fn set_wait(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let desktop = app.state::<Desktop>();
+    let _operation = desktop.operation.lock().unwrap();
+    set_inner(app, enabled)
 }
 fn set_inner(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();

@@ -236,7 +236,12 @@ async fn audio_stop(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
-fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+async fn desktop_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    return tauri::async_runtime::spawn_blocking(move || windows::desktop::set_wait(&app, enabled))
+        .await
+        .map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "windows"))]
     desktop::set(&app, enabled)
 }
 #[tauri::command]
