@@ -20,17 +20,61 @@ final class BeatCapture: ObservableObject {
   private var processor: AudioProcessor?
   private var generation = 0
   private var healthCheck: Task<Void, Never>?
+  private var activityEnabled = true
+  private var suspendedSource: PlayerSource?
+  private var stopping: Task<Void, Never>?
+  private var energyObservation: AnyCancellable?
+
+  init() {
+    // Release capture at the sleep notification, even before SwiftUI can update a surface.
+    energyObservation = EnergyMonitor.shared.$isAwake.sink { [weak self] awake in
+      if !awake { self?.setActivity(active: false) }
+    }
+  }
+
+  /// Keep the user's opt-in while releasing capture/DSP when it cannot affect the display.
+  func setActivity(active: Bool) {
+    guard activityEnabled != active else { return }
+    activityEnabled = active
+    if active, let source = suspendedSource {
+      let ticket = generation
+      Task {
+        guard generation == ticket, activityEnabled, suspendedSource == source else { return }
+        suspendedSource = nil
+        running = false
+        await start(source: source)
+      }
+    } else if !active, running || starting {
+      let source = captureSource ?? suspendedSource
+      stop()
+      suspendedSource = source
+      if source != nil {
+        running = true
+        state = "Beat sync paused to save energy"
+      }
+    }
+  }
+  private var captureSource: PlayerSource?
 
   func start(source: PlayerSource) async {
     guard !starting, !running else { return }
     // A denied request must not summon the system prompt on every shortcut press.
     // Retry capture once Settings reports the grant is active in this process.
     if permissionRequired && !CGPreflightScreenCaptureAccess() { return }
+    captureSource = source
+    if !activityEnabled {
+      suspendedSource = source
+      running = true
+      state = "Beat sync paused to save energy"
+      return
+    }
     generation += 1
     let ticket = generation
     starting = true
     permissionRequired = false
     state = "Waiting for macOS audio permission…"
+    if let stopping { await stopping.value }
+    guard generation == ticket else { return }
     do {
       // Ask ScreenCaptureKit directly so capture and permission reporting use
       // the same API instead of stopping at the older CoreGraphics preflight.
@@ -85,13 +129,15 @@ final class BeatCapture: ObservableObject {
           do { try await Task.sleep(for: .seconds(1)) } catch { return }
           guard let self, self.generation == ticket else { return }
           let age = ProcessInfo.processInfo.systemUptime - self.frame.timestamp
+          let nextState: String
           if self.frame.timestamp == 0 || age > 2 {
-            self.state = "No audio received from \(source.rawValue). Start playback in the selected player; if it is already playing, disable beat sync and enable it again."
+            nextState = "No audio received from \(source.rawValue). Start playback in the selected player; if it is already playing, disable beat sync and enable it again."
           } else if self.frame.level < 0.005 {
-            self.state = "Connected to \(source.rawValue) — audio is silent."
+            nextState = "Connected to \(source.rawValue) — audio is silent."
           } else {
-            self.state = "Live audio from \(source.rawValue)"
+            nextState = "Live audio from \(source.rawValue)"
           }
+          if self.state != nextState { self.state = nextState }
         }
       }
     } catch {
@@ -126,12 +172,14 @@ final class BeatCapture: ObservableObject {
     let previous = stream
     stream = nil
     processor = nil
+    suspendedSource = nil
+    captureSource = nil
     running = false
     starting = false
     frame = .silent
     state = "Ambient motion"
     permissionRequired = false
-    if let previous { Task { try? await previous.stopCapture() } }
+    if let previous { stopping = Task { try? await previous.stopCapture() } }
   }
 }
 

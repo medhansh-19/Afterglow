@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -50,15 +51,19 @@ def accept(platform, packages, runner, baseline, output):
         work = Path(temporary)
         server_root = work/'server'; server_root.mkdir()
         payloads = {}
+        package_hashes = {}
         patterns = [('windows-x86_64','*setup.exe')] if platform == 'windows' else [('linux-x86_64-deb','*.deb'),('linux-x86_64-appimage','*.AppImage')]
         for target, pattern in patterns:
             package = one(packages, pattern)
             shutil.copy2(package, server_root/package.name)
+            package_hashes[target] = digest(package)
             payloads[target] = {'url':package.name,'signature':Path(str(package)+'.sig').read_text().strip()}
         handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(server_root))
         server = http.server.ThreadingHTTPServer(('127.0.0.1',0), handler)
         threading.Thread(target=server.serve_forever,daemon=True).start()
         base = f'http://127.0.0.1:{server.server_port}'
+        unavailable = socket.socket(); unavailable.bind(('127.0.0.1',0))
+        offline = f'http://127.0.0.1:{unavailable.getsockname()[1]}/offline.json'
         good = {'version':version, 'platforms':{key:{**value,'url':base+'/'+value['url']} for key,value in payloads.items()}}
         (server_root/'good.json').write_text(json.dumps(good))
         bad = json.loads(json.dumps(good))
@@ -67,7 +72,7 @@ def accept(platform, packages, runner, baseline, output):
         reports = []
         def invoke(binary, destination, mode, current='0.1.1', feed='good.json', root=False):
             report = output/f'{len(reports):02d}-{mode}.json'
-            args = [str(binary), str(config), current, base+'/'+feed, str(destination), mode, str(report)]
+            args = [str(binary), str(config), current, (feed if feed.startswith('http://127.0.0.1:') else base+'/'+feed), str(destination), mode, str(report)]
             if root: args = ['sudo', *args]
             run(*args, timeout=240)
             assert report.exists(), 'Acceptance runner did not produce a result'
@@ -87,7 +92,7 @@ def accept(platform, packages, runner, baseline, output):
                 saved = digest(library)
                 binary = patch_runner(runner,work/'nsis-acceptance.exe','NSS')
                 before = digest(executable)
-                for mode, current, feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.1.1','bad.json'),('reject','0.1.1','missing.json'),('verify','0.1.1','good.json')]:
+                for mode, current, feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.1.1','bad.json'),('reject','0.1.1','missing.json'),('reject','0.1.1',offline),('verify','0.1.1','good.json')]:
                     invoke(binary,executable,mode,current,feed)
                     assert digest(executable)==before and digest(library)==saved, 'Check/download changed installation or data'
                 invoke(binary,executable,'install')
@@ -114,7 +119,7 @@ def accept(platform, packages, runner, baseline, output):
                 saved = digest(library)
                 deb_runner = patch_runner(runner,work/'deb-acceptance','DEB')
                 before = digest(executable)
-                for mode,current,feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.1.0','bad.json'),('reject','0.1.0','missing.json'),('verify','0.1.0','good.json')]:
+                for mode,current,feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.1.0','bad.json'),('reject','0.1.0','missing.json'),('reject','0.1.0',offline),('verify','0.1.0','good.json')]:
                     invoke(deb_runner,executable,mode,current,feed)
                     assert digest(executable)==before and digest(library)==saved
                 invoke(deb_runner,executable,'install',current='0.1.0',root=True)
@@ -137,8 +142,10 @@ def accept(platform, packages, runner, baseline, output):
                     invoke(image_runner,target,'install-fail',current='0.1.0')
                     assert digest(target)==previous, 'Read-only failure modified original AppImage'
                 finally: readonly.chmod(0o755)
-            (output/'acceptance.json').write_text(json.dumps({'passed':True,'platform':platform,'version':version,'signedDownload':True,'tamperRejected':True,'equalAndOlderRejected':True,'networkFailureRejected':True,'nativeUpgrade':True,'libraryPreserved':True,'reports':reports},indent=2))
-        finally: server.shutdown()
+            (output/'acceptance.json').write_text(json.dumps({'passed':True,'platform':platform,'version':version,'signedDownload':True,'tamperRejected':True,'equalAndOlderRejected':True,'networkFailureRejected':True,'nativeUpgrade':True,'libraryPreserved':True,'reports':reports,'payloadSha256':package_hashes,'sourceCommit':os.environ.get('GITHUB_SHA'),'buildRun':os.environ.get('BUILD_RUN')},indent=2))
+        finally:
+            server.shutdown()
+            unavailable.close()
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()

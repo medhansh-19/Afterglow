@@ -8,12 +8,15 @@ struct AfterglowMenu: View {
   @ObservedObject var shortcut: FocusShortcut
   @ObservedObject var desktopShortcut: FocusShortcut
   @ObservedObject var beatShortcut: FocusShortcut
+  @ObservedObject var appearanceShortcut: FocusShortcut
+  @ObservedObject var screenshotCompanion: ScreenshotCompanion
   @ObservedObject var panels: DisplayPanels
   var includeQuit = true
   @Environment(\.openWindow) private var openWindow
   @AppStorage("afterglow.clock") private var showClock = true
   @AppStorage("afterglow.motion") private var motion = true
   @AppStorage("afterglow.estimatedWords") private var estimatedWords = true
+  @AppStorage("afterglow.chorusMemory") private var chorusMemory = true
   @AppStorage("afterglow.tint") private var tintName = Tint.album.rawValue
 
   var body: some View {
@@ -70,8 +73,24 @@ struct AfterglowMenu: View {
       Toggle("Use ⇧⌘B Globally", isOn: Binding(
         get: { beatShortcut.isEnabled }, set: { beatShortcut.setEnabled($0) }))
       Text(beatShortcut.status)
+      Toggle("Use ⇧⌘A Globally", isOn: Binding(
+        get: { appearanceShortcut.isEnabled }, set: { appearanceShortcut.setEnabled($0) }))
+      Text(appearanceShortcut.status)
+      Divider()
+      Toggle("Offer Lyric Map After Screenshots", isOn: Binding(
+        get: { screenshotCompanion.enabled }, set: { screenshotCompanion.setEnabled($0) }))
+      Text(screenshotCompanion.status)
+      if screenshotCompanion.enabled {
+        Button("Retry Screenshot Companion") { screenshotCompanion.retry() }
+      }
     }
     Button("Appearance & Wallpaper…") { present(.wallpaper) }
+      .keyboardShortcut("a", modifiers: [.command, .shift])
+    Button("Customize Clock…") { present(.clock) }
+    Button("Capture & Share Lyric Map…") { panels.captureMap() }
+      .disabled(model.lines.isEmpty || desktop.window?.isVisible != true || panels.presented != nil)
+    Button("Collections & Saved Songs…") { present(.collections) }
+    Toggle("Remember Chorus Arrangements", isOn: $chorusMemory)
     Button("Lyric Cards…") { present(.cards) }
     Button("Lyric Library & Imports…") { present(.library) }
     if model.track != nil, !model.isDemo, model.lines.isEmpty {

@@ -831,6 +831,83 @@ let joinedPages = LyricLine(time: 0, text: "one.two;three.four", end: 8)
 expect(LyricWordPage.resolve(line: joinedPages, at: 7.9, nextLineTime: 8, estimated: true, pageSize: 2).words,
     ["three.", "four"], "sentence-separated words retain graph pagination")
 
+let savedGlow = SavedGlowColor(hex: " #3aF ", name: "Ocean")!
+expect(savedGlow.hex, "#33AAFF", "custom colors use a canonical RGB value")
+expect(savedGlow.name, "Ocean", "saved colors retain the user's label")
+expect(savedGlow.red, 0.2, "custom RGB red channel is decoded accurately")
+expect(savedGlow.blue, 1, "custom RGB blue channel is decoded accurately")
+expect(SavedGlowColor(hex: "#GG0000") == nil, true, "invalid custom hex is rejected")
+expect(SavedGlowColor(hex: "#FFFFFF00") == nil, true, "glow palette does not silently accept alpha values")
+expect(SavedGlowColor(hex: "ffffff")?.name, "#FFFFFF", "an unnamed color has a useful hex label")
+expect(try JSONDecoder().decode(SavedGlowColor.self, from: JSONEncoder().encode(savedGlow)), savedGlow,
+    "saved color metadata survives serialization")
+var customScene = SongAppearance(tint: savedGlow.hex, opacity: 0.15, marker: "Diamond", emoji: "✨", clock: true,
+    motion: true, estimatedWords: true, wallpaper: nil)
+expect(try JSONDecoder().decode(SongAppearance.self, from: JSONEncoder().encode(customScene)).tint,
+    "#33AAFF", "song scenes retain actual custom colors without depending on a palette entry")
+
+let legacyClockScene = try JSONDecoder().decode(SongAppearance.self, from: JSONEncoder().encode(keepsakeAppearance))
+expect(legacyClockScene.clockAppearance == nil, true, "older scenes remain readable without clock customization")
+let clockDesign = ClockAppearance(style: "Flip", color: "#33AAFF", followsLyrics: false,
+    format: "24-hour", showsSeconds: true, showsDate: false, scale: 1.2)
+customScene.clockAppearance = clockDesign
+expect(try JSONDecoder().decode(SongAppearance.self, from: JSONEncoder().encode(customScene)).clockAppearance,
+    clockDesign, "song scenes retain clock style, color, format and size")
+expect(ClockAppearance(scale: 20).scale, 1.4, "oversized clocks are bounded to protect the lyric display")
+expect(ClockAppearance(scale: .nan).scale, 1, "nonfinite clock scale uses its safe default")
+
+// Repeated sections keep geometry identities without borrowing another occurrence's timing.
+let chorusLines = ["A different verse opens the sky", "We carry the light back home", "Through every night we find our way",
+    "This is a different second verse", "WE carry the light back home!", "Through every night, we find our way.",
+    "We carry the light back home", "Through every night we find our way"]
+  .enumerated().map { LyricLine(time: Double($0.offset) * 5, text: $0.element) }
+let chorus = ChorusMemory(lines: chorusLines)
+expect(chorus.canonicalLines, [0, 1, 2, 3, 1, 2, 1, 2], "three chorus occurrences share the first passage identity")
+expect(chorus.repeatedLineCount, 4, "returning line count excludes the first chorus")
+expect(chorus.layoutSeed(for: 1), chorus.layoutSeed(for: 6), "chorus returns to the first arrangement after seeking")
+expect(chorus.layoutSeed(for: 1, pageStart: 24), chorus.layoutSeed(for: 4, pageStart: 24), "long chorus pages retain visual memory")
+expect(chorusLines[4].time, 20, "recognition preserves occurrence timestamps")
+expect(ChorusMemory(lines: []).canonicalLines, [], "empty lyric document has no chorus")
+expect(ChorusMemory(lines: ["Oh", "Yeah", "Oh", "Yeah"].enumerated().map {
+  LyricLine(time: Double($0.offset), text: $0.element)
+}).repeatedLineCount, 0, "short repeated filler is not classified as a chorus")
+expect(ChorusMemory(lines: ["We will always find our way home", "Something else", "We will always find our way home"]
+  .enumerated().map { LyricLine(time: Double($0.offset), text: $0.element) }).canonicalLines,
+  [0, 1, 0], "a substantial single-line refrain is recognized")
+expect(ChorusMemory(lines: ["[instrumental]", "[instrumental]"].enumerated().map {
+  LyricLine(time: Double($0.offset), text: $0.element)
+}).repeatedLineCount, 0, "instrumental markers never create chorus memories")
+
+let collectionSong = Track(title: "Home", artist: "Artist", album: "Album", duration: 180)
+let otherRecording = Track(title: "Home", artist: "Artist", album: "Live", duration: 190)
+var collectionLibrary = SongCollectionLibrary()
+let likedID = collectionLibrary.collections[0].id
+let favoritesID = collectionLibrary.collections[1].id
+collectionLibrary.setMembership(true, track: collectionSong, collectionID: likedID)
+collectionLibrary.setMembership(true, track: collectionSong, collectionID: likedID)
+expect(collectionLibrary.collections[0].songs.count, 1, "saving a song twice never duplicates it")
+expect(collectionLibrary.collections[0].contains(otherRecording), false, "collections distinguish different recordings")
+collectionLibrary.setMembership(true, track: collectionSong, collectionID: favoritesID)
+collectionLibrary.collections[0].lyricColor = "#33AAFF"
+collectionLibrary.collections[1].lyricColor = "Rose"
+expect(collectionLibrary.color(for: collectionSong), "#33AAFF", "automatic color uses first colored membership")
+collectionLibrary.colorSources[RecordingIdentity.key(collectionSong)] = favoritesID
+expect(collectionLibrary.color(for: collectionSong), "Rose", "explicit collection choice resolves overlapping colors")
+collectionLibrary.collections[1].lyricColor = nil
+expect(collectionLibrary.color(for: collectionSong), nil, "an explicitly selected inheriting collection uses scene or default")
+expect(collectionLibrary.color(for: otherRecording), nil, "collection colors never leak to other recordings")
+expect(collectionLibrary.color(for: nil), nil, "disconnected display inherits default")
+expect(collectionLibrary.validName(" liked "), nil, "collection names reject case-insensitive duplicates")
+expect(collectionLibrary.validName("  "), nil, "collection names reject whitespace")
+expect(collectionLibrary.validName(String(repeating: "a", count: 41)), nil, "collection names have a bounded length")
+expect(collectionLibrary.validName(" Late nights "), "Late nights", "new collection names trim outer whitespace")
+expect(try JSONDecoder().decode(SongCollectionLibrary.self, from: JSONEncoder().encode(collectionLibrary)),
+  collectionLibrary, "collection songs, colors and conflict choices survive serialization")
+collectionLibrary.setMembership(false, track: collectionSong, collectionID: favoritesID)
+expect(collectionLibrary.colorSources.isEmpty, true, "removing membership clears its explicit color choice")
+expect(collectionLibrary.color(for: collectionSong), "#33AAFF", "removing membership resolves the remaining collection color")
+collectionLibrary.removeCollection(likedID)
+expect(collectionLibrary.color(for: collectionSong), nil, "deleting last membership restores scene or default")
 
 let boundaryVocabulary = ["hello", "constellation", "a", "(words)", "[", "]", "Next.Sentence;Still", "3.14", "don't", "सितारे", "light...", "✨", "（bright）", "星。光", "one；two"]
 let boundaryTokens = (0..<23).map { boundaryVocabulary[($0 * 7 + 2) % boundaryVocabulary.count] }

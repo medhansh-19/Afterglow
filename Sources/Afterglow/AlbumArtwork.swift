@@ -7,6 +7,10 @@ enum ArtworkReference: Sendable { case remote(URL), embedded(Data) }
 
 enum AlbumArtwork {
     static func color(from reference: ArtworkReference) async throws -> GlowColor? {
+        try await load(from: reference)?.color
+    }
+
+    static func load(from reference: ArtworkReference) async throws -> (color: GlowColor?, image: CGImage)? {
         let data: Data
         switch reference {
         case .embedded(let bytes): data = bytes
@@ -26,7 +30,7 @@ enum AlbumArtwork {
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 64,
+                kCGImageSourceThumbnailMaxPixelSize: 384,
                 kCGImageSourceCreateThumbnailWithTransform: true,
               ] as CFDictionary) else { return nil }
         let width = 64, height = 64
@@ -39,7 +43,7 @@ enum AlbumArtwork {
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return AlbumPalette.extract(rgba: Array(buffer))
         }
-        return extracted
+        return (extracted, image)
     }
 
     static func allowed(_ url: URL) -> Bool {

@@ -7,21 +7,24 @@ struct AfterglowApp: App {
   @StateObject private var shortcut = FocusShortcut()
   @StateObject private var desktopShortcut = FocusShortcut.desktop()
   @StateObject private var beatShortcut = FocusShortcut.beatSync()
+  @StateObject private var appearanceShortcut = FocusShortcut.appearance()
   @StateObject private var updates = AppUpdates.shared
   @StateObject private var model = DisplayModel()
   @StateObject private var beats = BeatCapture()
   @StateObject private var desktop = DesktopMode()
   @StateObject private var appearance = WallpaperAppearance()
+  @StateObject private var screenshotCompanion = ScreenshotCompanion()
   @StateObject private var panels = DisplayPanels()
   var body: some Scene {
     Window("Afterglow", id: "display") {
       DisplayView(model: model, beats: beats, desktop: desktop, panels: panels, appearance: appearance)
         .background(DisplayWindowReader(mode: desktop))
         .modifier(FocusShortcutSetup(shortcut: shortcut, desktopShortcut: desktopShortcut,
-          beatShortcut: beatShortcut, desktop: desktop, beats: beats, model: model, panels: panels, delegate: delegate))
+          beatShortcut: beatShortcut, appearanceShortcut: appearanceShortcut, desktop: desktop, beats: beats, model: model, panels: panels, delegate: delegate))
         .frame(minWidth: 720, minHeight: 640)
         .preferredColorScheme(.dark)
         .onAppear {
+          screenshotCompanion.configure(panels: panels)
           if ProcessInfo.processInfo.arguments.contains("--demo") { model.demo() }
           if ProcessInfo.processInfo.arguments.contains("--onboarding") { model.disconnect() }
         }
@@ -32,7 +35,7 @@ struct AfterglowApp: App {
       CommandGroup(replacing: .newItem) {}
       CommandGroup(after: .appInfo) { UpdateMenu(updates: updates) }
       CommandMenu("Controls") {
-        AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels, includeQuit: false)
+        AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, appearanceShortcut: appearanceShortcut, screenshotCompanion: screenshotCompanion, panels: panels, includeQuit: false)
       }
       CommandMenu("Display") {
         Button(desktop.isFocused ? "Exit Focus Mode" : "Focus Mode — Hide Widgets & Stage Manager")
@@ -58,7 +61,7 @@ struct AfterglowApp: App {
       }
     }
     MenuBarExtra("Afterglow", systemImage: "waveform.path") {
-      AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, panels: panels)
+      AfterglowMenu(model: model, beats: beats, desktop: desktop, shortcut: shortcut, desktopShortcut: desktopShortcut, beatShortcut: beatShortcut, appearanceShortcut: appearanceShortcut, screenshotCompanion: screenshotCompanion, panels: panels)
       Divider()
       UpdateMenu(updates: updates)
     }

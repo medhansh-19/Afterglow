@@ -1,14 +1,19 @@
 import AfterglowCore
+import Combine
 import CryptoKit
 import SwiftUI
 
 @MainActor
 final class DisplayModel: ObservableObject {
   @Published private(set) var track: Track?
-  @Published private(set) var lines: [LyricLine] = []
+  @Published private(set) var lines: [LyricLine] = [] {
+    didSet { if lines != oldValue { chorusMemory = ChorusMemory(lines: lines) } }
+  }
+  private(set) var chorusMemory = ChorusMemory(lines: [])
   @Published private(set) var source: PlayerSource?
   @Published private(set) var isDemo = false
   @Published private(set) var playing = false
+  @Published private(set) var clockRevision = 0
   @Published private(set) var message = ""
   @Published private(set) var loading = false
   @Published private(set) var error: String?
@@ -17,16 +22,33 @@ final class DisplayModel: ObservableObject {
   @Published private(set) var lyricDocument: LyricDocument?
   @Published private(set) var libraryError: String?
   @Published private(set) var albumColor: GlowColor?
+  @Published private(set) var albumImage: NSImage?
   @Published private(set) var artworkStatus = "Connect a player to match its album cover."
   private var artworkTask: Task<Void, Never>?
   private var paletteCache: [String: GlowColor] = [:]
+  private var artworkImages: [String: NSImage] = [:]
   private var clock = PlaybackClock()
   private var timer: Timer?
   private var lookup: Task<Void, Never>?
   private var generation = 0
   private var playerGeneration = 0
   private var polling: Task<Void, Never>?
+  private var pollAgain = false
   private var controlling: Task<Void, Never>?
+  private var activityVisible = true
+  private var activityAwake = true
+  private var energyBudget = EnergyBudget()
+  private var playerObserver: NSObjectProtocol?
+  private var energyObservation: AnyCancellable?
+
+  init() {
+    let monitor = EnergyMonitor.shared
+    // The menu-bar model survives closing the display window; sleep handling must too.
+    energyObservation = monitor.$isAwake.combineLatest(monitor.$budget).sink { [weak self] awake, budget in
+      guard let self else { return }
+      self.setActivity(visible: self.activityVisible, awake: awake, budget: budget)
+    }
+  }
 
   var connected: Bool { source != nil || isDemo }
 
@@ -61,14 +83,39 @@ final class DisplayModel: ObservableObject {
   func connect(_ source: PlayerSource) {
     disconnect()
     self.source = source
-    poll()
-    if self.source != nil {
-      let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
-        Task { @MainActor in self?.poll() }
-      }
-      RunLoop.main.add(timer, forMode: .common)
-      self.timer = timer
+    // Notifications invalidate our own fixed player query; payload metadata is never trusted.
+    let name = source == .spotify ? "com.spotify.client.PlaybackStateChanged" : "com.apple.Music.playerInfo"
+    playerObserver = DistributedNotificationCenter.default().addObserver(
+      forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+      Task { @MainActor in self?.poll() }
     }
+    poll()
+  }
+
+  func setActivity(visible: Bool, awake: Bool, budget: EnergyBudget) {
+    guard visible != activityVisible || awake != activityAwake || budget != energyBudget else { return }
+    let resumed = awake && (!activityAwake || (visible && !activityVisible))
+    activityVisible = visible
+    activityAwake = awake
+    energyBudget = budget
+    timer?.invalidate()
+    timer = nil
+    if !awake { pollAgain = false; polling?.cancel() }
+    else if resumed { poll() }
+    else { schedulePoll() }
+  }
+
+  private func schedulePoll() {
+    timer?.invalidate()
+    timer = nil
+    guard source != nil, activityAwake, polling == nil else { return }
+    let interval = energyBudget.pollInterval(visible: activityVisible, playing: playing)
+    let next = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+      Task { @MainActor in self?.poll() }
+    }
+    next.tolerance = interval * 0.2
+    RunLoop.main.add(next, forMode: .common)
+    timer = next
   }
 
   func demo() {
@@ -94,15 +141,19 @@ final class DisplayModel: ObservableObject {
     playerGeneration += 1
     polling?.cancel()
     polling = nil
+    pollAgain = false
     controlling?.cancel()
     controlling = nil
     timer?.invalidate()
     timer = nil
+    if let playerObserver { DistributedNotificationCenter.default().removeObserver(playerObserver) }
+    playerObserver = nil
     lookup?.cancel()
     lookup = nil
     artworkTask?.cancel()
     artworkTask = nil
     albumColor = nil
+    albumImage = nil
     artworkStatus = "Connect a player to match its album cover."
     source = nil
     isDemo = false
@@ -195,10 +246,22 @@ final class DisplayModel: ObservableObject {
 
   private func poll() {
     // One in-flight query: a slow player cannot accumulate timer work or stale snapshots.
-    guard let source, polling == nil else { return }
+    guard let source, activityAwake else { return }
+    // An event or completed transport command during a read needs a fresh read afterwards.
+    if polling != nil { pollAgain = true; return }
+    timer?.invalidate()
+    timer = nil
     let ticket = playerGeneration
     polling = Task { [weak self] in
-      defer { if self?.playerGeneration == ticket { self?.polling = nil } }
+      defer {
+        if let self, self.playerGeneration == ticket {
+          self.polling = nil
+          if self.pollAgain && self.activityAwake {
+            self.pollAgain = false
+            self.poll()
+          } else { self.schedulePoll() }
+        }
+      }
       do {
         let snapshot = try await Player.shared.read(source)
         guard let self, !Task.isCancelled, self.playerGeneration == ticket else { return }
@@ -217,10 +280,14 @@ final class DisplayModel: ObservableObject {
     // every 400 ms poll interrupts hover tracking before submenus can open.
     if error != nil { error = nil }
     let changedTrack = track != snapshot.track
+    let previousPosition = position()
     clock.sample(
       position: snapshot.position, playing: snapshot.playing,
       sampledAt: snapshot.sampledAt, receivedAt: ProcessInfo.processInfo.systemUptime,
       force: changedTrack)
+    if !snapshot.playing && abs(position() - previousPosition) > 0.001 {
+      clockRevision &+= 1
+    }
     if playing != snapshot.playing { playing = snapshot.playing }
     if changedTrack {
       lookup?.cancel()
@@ -246,6 +313,7 @@ final class DisplayModel: ObservableObject {
     artworkTask?.cancel()
     guard let target else {
       albumColor = nil
+      albumImage = nil
       artworkStatus = "No album cover available."
       return
     }
@@ -253,10 +321,12 @@ final class DisplayModel: ObservableObject {
       "\(source.rawValue)|\(target.artist)|\(target.album.isEmpty ? target.title : target.album)"
     if let cached = paletteCache[key] {
       albumColor = cached
+      albumImage = artworkImages[key]
       artworkStatus = "Colors matched to the album cover."
       return
     }
     albumColor = nil
+    albumImage = nil
     artworkStatus = "Reading album cover…"
     artworkTask = Task { [weak self] in
       do {
@@ -268,16 +338,22 @@ final class DisplayModel: ObservableObject {
           self.artworkStatus = "Album cover unavailable; using Rose as a fallback."
           return
         }
-        let color = try await AlbumArtwork.color(from: reference)
+        let artwork = try await AlbumArtwork.load(from: reference)
+        let color = artwork?.color
         guard !Task.isCancelled, self.track == target, self.source == source else { return }
         self.albumColor = color
+        self.albumImage = artwork.map { NSImage(cgImage: $0.image, size: .zero) }
         self.artworkStatus =
           color == nil
           ? "Album cover unavailable; using Rose as a fallback."
           : "Colors matched to the album cover."
         if let color {
-          if self.paletteCache.count >= 40 { self.paletteCache.removeAll(keepingCapacity: true) }
+          if self.paletteCache.count >= 40 {
+            self.paletteCache.removeAll(keepingCapacity: true)
+            self.artworkImages.removeAll(keepingCapacity: true)
+          }
           self.paletteCache[key] = color
+          self.artworkImages[key] = self.albumImage
         }
       } catch {
         guard let self, !Task.isCancelled, self.track == target else { return }
