@@ -188,6 +188,13 @@ public static class AfterglowSmokeWindow {
   # A true process restart must reload the same preference, not retain in-memory state.
   Stop-Process -Id $application.Id -Force
   $application.WaitForExit(5000) | Out-Null
+  if ($CheckDesktop) {
+    $desktopLibrary = Get-Content $libraryPath -Raw | ConvertFrom-Json
+    $desktopLibrary.settings.tint = '#22ccaa'
+    $desktopLibrary.settings.albumColor = $false
+    $desktopLibrary.settings.wallpaper = $null
+    $desktopLibrary | ConvertTo-Json -Depth 50 | Set-Content $libraryPath -Encoding utf8NoBOM
+  }
   $readyCount = @((Get-Content $log) | Where-Object { $_ -eq 'ui-ready' }).Count
   $application = Start-Process -FilePath $AppPath -PassThru
   Wait-Until { $application.Refresh(); $application.MainWindowHandle -ne [IntPtr]::Zero } 'Restarted native main window did not appear.'
@@ -206,6 +213,23 @@ public static class AfterglowSmokeWindow {
   $range = $reloaded.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
   if ($range.Current.Value -ne 120) { throw 'Restarted app did not reload clock size 120.' }
   if ($CheckDesktop) {
+    function Capture-DesktopSignal {
+      Add-Type -AssemblyName System.Drawing
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+      $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+      $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+      $green = 0
+      for ($y = [int]($bounds.Height * 0.15); $y -lt [int]($bounds.Height * 0.75); $y += 4) {
+        for ($x = [int]($bounds.Width * 0.25); $x -lt [int]($bounds.Width * 0.75); $x += 4) {
+          $pixel = $bitmap.GetPixel($x, $y)
+          if ($pixel.G -gt 20 -and $pixel.G -gt ($pixel.R * 1.5) -and $pixel.G -gt ($pixel.B * 1.05)) { $green++ }
+        }
+      }
+      $bitmap.Save((Join-Path $OutputDirectory 'desktop-native.png'))
+      $graphics.Dispose(); $bitmap.Dispose()
+      return $green
+    }
     [AfterglowSmokeWindow]::SetForegroundWindow($application.MainWindowHandle) | Out-Null
     [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
     if ([AfterglowSmokeWindow]::FindWindow('Progman', $null) -eq [IntPtr]::Zero) { Start-Process "$env:WINDIR/explorer.exe" | Out-Null }
@@ -216,6 +240,7 @@ public static class AfterglowSmokeWindow {
     Invoke-Button 'Desktop'
     Wait-Until { (Get-Content $log -Raw).Contains('desktop-ready') -and [AfterglowSmokeWindow]::ValidateDesktop($application.Id) -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
+    Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20
     $open = Start-Process $AppPath -PassThru
     $open.WaitForExit(10000) | Out-Null
     Wait-Until { [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Tray-style restore did not show controls over the wallpaper.'

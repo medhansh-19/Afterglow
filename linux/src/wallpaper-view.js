@@ -15,7 +15,7 @@ function wake() {
   frame = requestAnimationFrame(draw);
 }
 await listen("display-state", (event) => { timeline.receive(event.payload, performance.now()); wake(); });
-await listen("audio-frame", (event) => timeline.audio(event.payload, performance.now()));
+await listen("audio-frame", (event) => { timeline.audio(event.payload, performance.now()); wake(); });
 await listen("audio-ended", () => { timeline.receive({ audioActive: false }, performance.now()); wake(); });
 await listen("power-state", (event) => { timeline.power(event.payload, performance.now()); wake(); });
 new ResizeObserver(wake).observe(document.documentElement);
@@ -24,7 +24,7 @@ await invoke("wallpaper_ready");
 function draw(now) {
   const state = timeline.frame(now);
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const animated = state.playing && state.settings.motion && !reduced;
+  const animated = state.playing && (state.settings.motion || state.audioActive) && !reduced;
   const interval = animated ? (state.onBattery ? 50 : 1000 / 30) : state.playing ? 100 : 1000;
   if (!state.sleeping && (now - lastDraw >= interval || (dirty && !state.playing))) {
     visual.draw(now, state);

@@ -69,6 +69,7 @@ let library = newLibrary(),
   audioStarted = 0,
   audioLastFrame = 0,
   audioLastSignal = 0,
+  audioRevision = 0,
   audioIndex = null,
   captureActive = false,
   capturePending = false,
@@ -90,10 +91,10 @@ let library = newLibrary(),
 const visual = renderer($("#waves"), $("#graph"), $("#clock"));
 let scheduledTimer = 0,
   scheduledFrame = 0;
-function wake() {
+function wake(force = true) {
   clearTimeout(scheduledTimer);
   cancelAnimationFrame(scheduledFrame);
-  lastDraw = 0;
+  if (force) lastDraw = 0;
   if (desktop) scheduledTimer = setTimeout(() => tick(performance.now()), 0);
   else scheduledFrame = requestAnimationFrame(tick);
 }
@@ -1202,6 +1203,8 @@ if (native) {
     if (captureActive || capturePending) {
       audio = event.payload;
       audioLastFrame = performance.now();
+      audioRevision++;
+      if (!document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) wake(false);
       if (audio.level > .005 || audio.bands?.some((value) => value > .01)) audioLastSignal = audioLastFrame;
       updateAudioStatus();
     }
@@ -1233,8 +1236,12 @@ if (native) {
   });
 }
 async function dispatchAction(action) {
-  if (desktop && ["focus", "beats", "appearance", "capture"].includes(action))
-    await toggleDesktop();
+  if (desktop && action === "focus") await toggleDesktop();
+  if (desktop && native && ["beats", "appearance", "capture"].includes(action)) {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().show();
+    await getCurrentWindow().setFocus();
+  }
   const actions = {
     focus: toggleFocus,
     desktop: toggleDesktop,
@@ -1247,7 +1254,7 @@ async function dispatchAction(action) {
 function tick(now) {
   const animate =
     sample?.playing &&
-    effective().motion &&
+    (effective().motion || captureActive) &&
     (desktop || !document.hidden) &&
     !sleeping;
   scheduledTimer = setTimeout(
@@ -1260,7 +1267,8 @@ function tick(now) {
   if ((document.hidden && !desktop) || sleeping) return;
   const settings = effective();
   if ($("#panel").open) updatePanelTint(settings.color);
-  const interval = sample?.playing && settings.motion ? (onBattery ? 66 : 33) : 200;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const interval = sample?.playing && (settings.motion || captureActive) ? (onBattery ? 66 : 33) : 200;
   if (now - lastDraw < interval) return;
   lastDraw = now;
   const position = positionAt(sample, now);
@@ -1289,6 +1297,7 @@ function tick(now) {
     innerWidth,
     innerHeight,
     visual.revision,
+    captureActive && !reduced ? audioRevision : 0,
   ].join(":");
   if ((sample?.playing && settings.motion) || signature !== lastRender) {
     visual.draw(now, {

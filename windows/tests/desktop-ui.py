@@ -43,6 +43,14 @@ with sync_playwright() as p:
  assert page.locator('#time').inner_text()!='11:43'
  page.evaluate("fixture.emit('display-state',{playing:false,sample:{position:706,duration:1153,playing:false,rate:1}})")
  expect(page.locator('#time')).to_have_text('11:46');page.wait_for_timeout(1200);expect(page.locator('#time')).to_have_text('11:46')
+ # Beats must still change the ribbons when ambient flowing animation is off.
+ page.evaluate("fixture.emit('display-state',{playing:true,audioActive:true,sample:{position:706,duration:1153,rate:1,playing:true},lyrics:[],settings:{motion:false}})")
+ page.wait_for_timeout(200)
+ quiet=page.locator('#waves').evaluate('el=>el.toDataURL()')
+ page.evaluate("fixture.signal=setInterval(()=>fixture.emit('audio-frame',{level:.9,bands:Array(32).fill(.9)}),40)")
+ page.wait_for_timeout(300)
+ assert page.locator('#waves').evaluate('el=>el.toDataURL()')!=quiet,'Live beat frames did not change the ribbons with ambient motion off'
+ page.evaluate("clearInterval(fixture.signal);fixture.emit('display-state',{playing:false,sample:{position:706,duration:1153,rate:1,playing:false}})")
  # A wallpaper keeps its image after partial preference updates, and can explicitly clear it.
  page.evaluate("fixture.emit('display-state',{settings:{wallpaper:'data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><rect width=\"1\" height=\"1\" fill=\"red\"/></svg>',opacity:1}})")
  page.wait_for_timeout(100);page.evaluate("fixture.emit('display-state',{settings:{color:'#ff0000'}})")
