@@ -120,7 +120,7 @@ public static class AfterglowSmokeWindow {
       if (windows.Count != monitors.Count || windows.Count == 0) return "Wallpaper count differs from monitor count.";
       foreach (var window in windows) {
         uint parent; GetWindowThreadProcessId(GetParent(window),out parent);
-        if (parent == (uint)pid || parent == 0 || (ExpectedOwner != 0 ? parent != ExpectedOwner : System.Diagnostics.Process.GetProcessById((int)parent).ProcessName.ToLowerInvariant() != "explorer")) return "Wallpaper is not parented to Explorer.";
+        if (parent == (uint)pid || parent == 0 || (ExpectedOwner != 0 ? parent != ExpectedOwner : System.Diagnostics.Process.GetProcessById((int)parent).ProcessName.ToLowerInvariant() != "explorer")) return "Wallpaper parent PID " + parent + " differs from expected host " + ExpectedOwner + ", app " + pid + ".";
         if ((Style(window,-16).ToInt64() & 0x40000000) == 0) return "Wallpaper is not a child window.";
         if ((Style(window,-20).ToInt64() & 0x08000020) != 0x08000020) return "Wallpaper is not click-through and non-activating.";
         Rect actual; if (!GetWindowRect(window,out actual)) return "Wallpaper bounds unavailable.";

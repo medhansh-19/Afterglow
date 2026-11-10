@@ -50,9 +50,10 @@ public static class DesktopHostFixture {
       SetLayeredWindowAttributes(icons,0,0,2);
       SetWindowPos(background,new IntPtr(1),0,0,width,height,0x10);
       SetWindowPos(icons,IntPtr.Zero,0,0,width,height,0x10);
-      SetWindowPos(root,new IntPtr(1),left,top,width,height,0x10);
+      SetWindowPos(root,IntPtr.Zero,left,top,width,height,0x10);
     } else {
-      Window("Progman",IntPtr.Zero,quiet,false);
+      var root=Window("Progman",IntPtr.Zero,quiet,false);
+      SetWindowPos(root,IntPtr.Zero,left,top,width,height,0x10);
       var icons=Window("WorkerW",IntPtr.Zero,quiet|layered,true);
       Window("SHELLDLL_DefView",icons,quiet,true);
       SetLayeredWindowAttributes(icons,0,0,2);
