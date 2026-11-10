@@ -68,7 +68,7 @@ export function renderer(canvas, graph, clock) {
       0,
       w * 0.5,
       h * 0.5,
-      w * 0.75,
+      Math.hypot(w, h) * .55,
     );
     glow.addColorStop(0, `${settings.color}18`);
     glow.addColorStop(1, "#09090b00");
@@ -169,12 +169,12 @@ export function renderer(canvas, graph, clock) {
     get revision() {
       return invalidation;
     },
-    async drawMap(track, line, color) {
+    async drawMap(track, line, color, screenshot = false) {
       const frozen = graph.querySelector("svg")?.cloneNode(true);
       if (frozen) {
         frozen.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-        frozen.setAttribute("width", "1600");
-        frozen.setAttribute("height", "700");
+        frozen.setAttribute("width", screenshot ? String(graph.clientWidth) : "1600");
+        frozen.setAttribute("height", screenshot ? String(graph.clientHeight) : "700");
         frozen.style.color = color;
         frozen.querySelectorAll('[class^="ag-marker-"]').forEach((node) => {
           const wanted = node.classList.contains(
@@ -188,15 +188,20 @@ export function renderer(canvas, graph, clock) {
             .forEach((node) => (node.style.display = "none"));
       }
       const out = document.createElement("canvas");
-      out.width = 1600;
-      out.height = 1000;
+      out.width = screenshot ? Math.max(1, Math.round(w * 2)) : 1600;
+      out.height = screenshot ? Math.max(1, Math.round(h * 2)) : 1000;
       const c = out.getContext("2d");
       c.fillStyle = "#09090b";
-      c.fillRect(0, 0, 1600, 1000);
+      c.fillRect(0, 0, out.width, out.height);
+      if (screenshot) {
+        c.scale(2, 2);
+        c.drawImage(canvas, 0, 0, w, h);
+      }
       if (frozen) {
-        const font = await fetch("/fonts/manrope.woff2").then((r) =>
-          r.arrayBuffer(),
-        );
+        const font = await fetch(new URL("/fonts/manrope.woff2", location.href)).then((r) => {
+          if (!r.ok) throw Error("Screenshot font could not be loaded. Try again.");
+          return r.arrayBuffer();
+        });
         let bytes = "";
         for (const value of new Uint8Array(font))
           bytes += String.fromCharCode(value);
@@ -219,12 +224,48 @@ export function renderer(canvas, graph, clock) {
               reject(Error("Lyric map could not be rendered."));
             image.src = url;
           });
-          c.drawImage(image, 0, 70, 1600, 700);
+          if (screenshot) {
+            const bounds = graph.getBoundingClientRect(), base = canvas.getBoundingClientRect();
+            c.drawImage(image, bounds.left - base.left, bounds.top - base.top, bounds.width, bounds.height);
+          } else c.drawImage(image, 0, 70, 1600, 700);
         } finally {
           URL.revokeObjectURL(url);
         }
       } else {
         c.drawImage(canvas, 0, 0, 1600, 780);
+      }
+      if (screenshot) {
+        const base = canvas.getBoundingClientRect();
+        const clockSvg = clock.querySelector("svg");
+        if (clockSvg) {
+          const copy = clockSvg.cloneNode(true), bounds = clock.getBoundingClientRect();
+          copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          copy.setAttribute("width", String(bounds.width)); copy.setAttribute("height", String(bounds.height));
+          copy.style.color = getComputedStyle(clock).color;
+          const image = new Image(), url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], {type:"image/svg+xml"}));
+          try {
+            await new Promise((resolve,reject) => { image.onload=resolve; image.onerror=()=>reject(Error("Screenshot clock could not be rendered.")); image.src=url; });
+            c.drawImage(image,bounds.left-base.left,bounds.top-base.top,bounds.width,bounds.height);
+          } finally { URL.revokeObjectURL(url); }
+        }
+        for (const node of [clockSvg ? null : clock, document.querySelector("#title"), document.querySelector("#artist"), document.querySelector("#time"), document.querySelector("#duration")]) {
+          if (!node || !node.textContent || node.hidden) continue;
+          const bounds = node.getBoundingClientRect(), style = getComputedStyle(node);
+          c.fillStyle = style.color;
+          c.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          c.textAlign = "center";
+          c.fillText(node.textContent, bounds.left - base.left + bounds.width / 2, bounds.top - base.top + bounds.height * .8, bounds.width);
+        }
+        const seek = document.querySelector("#seek");
+        if (seek) {
+          const bounds = seek.getBoundingClientRect();
+          const fraction = Math.min(1, Math.max(0, Number(seek.value || 0) / Math.max(1, Number(seek.max || 1))));
+          const x = bounds.left - base.left, y = bounds.top - base.top + bounds.height / 2;
+          c.lineCap = "round"; c.lineWidth = 2;
+          c.strokeStyle = "#29292d"; c.beginPath(); c.moveTo(x,y); c.lineTo(x+bounds.width,y); c.stroke();
+          c.strokeStyle = "#aaa"; c.beginPath(); c.moveTo(x,y); c.lineTo(x+bounds.width*fraction,y); c.stroke();
+        }
+        return out;
       }
       c.fillStyle = "#eee";
       c.textAlign = "center";

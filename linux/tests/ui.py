@@ -17,7 +17,7 @@ with sync_playwright() as p:
     expect(page.locator('#lyric-source')).to_contain_text('Word timed')
     page.locator('#seek').fill('3');page.locator('#seek').dispatch_event('change')
     expect(page.locator('#graph svg')).to_be_visible()
-    page.get_by_role('button',name='Pause',exact=True).click()
+    page.evaluate('document.activeElement.blur()');page.keyboard.press('Space')
     paused=page.locator('#time').inner_text();page.wait_for_timeout(1100);assert page.locator('#time').inner_text()==paused
     page.locator('#controls').click();page.get_by_role('button',name='Appearance',exact=True).click()
     page.locator('[data-setting="clockStyle"]').select_option('Analog')
@@ -46,7 +46,7 @@ with sync_playwright() as p:
     saved=page.evaluate("JSON.parse(localStorage.getItem('afterglow-linux-preview'))")
     assert saved['collections'][2]['name']=='Late nights' and len(saved['excerpts'])==1
     page.reload();page.wait_for_load_state('networkidle');page.get_by_role('button',name='Try the silent demo',exact=True).click()
-    page.locator('#seek').fill('3');page.locator('#seek').dispatch_event('change');page.get_by_role('button',name='Pause',exact=True).click();expect(page.locator('#graph svg')).to_be_visible();page.wait_for_timeout(400);page.screenshot(path=str(out/'demo-1200.png'))
+    page.locator('#seek').fill('3');page.locator('#seek').dispatch_event('change');page.evaluate('document.activeElement.blur()');page.keyboard.press('Space');expect(page.locator('#graph svg')).to_be_visible();page.wait_for_timeout(400);page.screenshot(path=str(out/'demo-1200.png'))
     page.locator('#controls').click();page.get_by_role('button',name='Collections',exact=True).click();expect(page.locator('.saved-song')).to_have_count(1)
     for width,height in [(1440,900),(1024,768),(768,1024),(640,700)]:
         page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(100)

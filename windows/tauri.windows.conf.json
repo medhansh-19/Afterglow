@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mainBinaryName": "afterglow-windows",
   "identifier": "local.medhansh.afterglow.windows",
   "bundle": {
@@ -36,5 +36,19 @@
       },
       "requireSignedVersion": true
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Afterglow",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 480,
+        "backgroundColor": "#09090b",
+        "maximized": true
+      }
+    ]
   }
 }

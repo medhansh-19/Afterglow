@@ -21,6 +21,8 @@ with sync_playwright() as p:
     page.goto(url)
     page.wait_for_load_state("networkidle")
     expect(page.locator(".brand")).to_contain_text("WINDOWS PREVIEW")
+    expect(page.locator(".top-actions button")).to_have_count(1)
+    expect(page.locator(".top-actions #controls")).to_be_visible()
     expect(page.locator(".preview-note")).to_contain_text("Windows")
     page.set_viewport_size({"width": 640, "height": 480})
     rect = page.locator("#demo").bounding_box()
@@ -30,7 +32,7 @@ with sync_playwright() as p:
     expect(page.locator("#title")).to_have_text("Afterglow")
     page.locator("#seek").fill("3")
     page.locator("#seek").dispatch_event("change")
-    page.get_by_role("button", name="Pause", exact=True).click()
+    page.evaluate("document.activeElement.blur()");page.keyboard.press("Space")
     expect(page.locator("#graph svg")).to_be_visible()
     paused = page.locator("#time").inner_text()
     page.wait_for_timeout(1100)
@@ -58,6 +60,12 @@ with sync_playwright() as p:
     with page.expect_download() as download:
         page.get_by_role("button", name="Export lyric map", exact=True).click()
     download.value.save_as(out / "lyric-map.png")
+    with page.expect_download() as screenshot:
+        page.locator("#capture-screen").click()
+    screenshot.value.save_as(out / "screenshot.png")
+    png = (out / "screenshot.png").read_bytes()
+    assert struct.unpack(">II", png[16:24]) == (2400, 1600), "Screenshot must match the actual screen aspect ratio"
+
     assert struct.unpack(">II", (out / "lyric-map.png").read_bytes()[16:24]) == (1600, 1000)
 
     page.locator("#saved-color-name").fill("Moonlight")

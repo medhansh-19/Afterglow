@@ -43,13 +43,13 @@ with sync_playwright() as p:
     expect(page.locator('#title')).to_have_text('Test track')
     page.locator('#controls').click(); page.locator('[data-tab="audio"]').click()
     page.locator('[data-audio="101"]').click()
-    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·')
+    expect(page.locator('#beat-state')).to_contain_text('Waiting for player audio')
     assert page.locator('#panel').evaluate('el=>el.open'), 'Stream selection should allow in-place verification'
     count = lambda cmd: page.evaluate('(cmd) => fixture.calls.filter(c=>c.command===cmd).length', cmd)
     starts, stops = count('audio_start'), count('audio_stop')
     page.locator('[data-tab="appearance"]').click()
     assert count('audio_start') == starts and count('audio_stop') == stops, 'Controls stopped live beat capture'
-    expect(page.locator('#appearance-beat-state')).to_have_text('Listening')
+    expect(page.locator('#appearance-beat-state')).to_contain_text('Waiting')
     page.screenshot(path=str(out/'appearance-1200.png'))
     page.locator('[data-setting="albumColor"]').uncheck(); page.locator('[data-setting="tint"]').fill('#22ccaa')
     page.wait_for_timeout(250)
@@ -68,30 +68,30 @@ with sync_playwright() as p:
     page.set_viewport_size({'width':1200,'height':800})
     page.locator('#done-panel').click()
     assert count('audio_stop')==stops
-    page.get_by_role('button',name='Pause',exact=True).click()
+    page.evaluate('document.activeElement.blur()');page.keyboard.press('Space')
     expect(page.locator('#play')).to_have_attribute('aria-label','Play'); assert count('audio_stop') > stops
-    page.get_by_role('button',name='Play',exact=True).click()
-    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·'); assert count('audio_start') > starts
+    page.evaluate('document.activeElement.blur()');page.keyboard.press('Space')
+    expect(page.locator('#beat-state')).to_contain_text('Waiting for player audio'); assert count('audio_start') > starts
     # A deliberately slow stop must finish before the replacement start.
     page.evaluate('fixture.delayStop=true')
-    page.get_by_role('button',name='Pause',exact=True).click()
-    page.get_by_role('button',name='Play',exact=True).click()
+    page.evaluate('document.activeElement.blur()');page.keyboard.press('Space')
+    page.evaluate('document.activeElement.blur()');page.keyboard.press('Space')
     page.wait_for_timeout(600)
     assert page.evaluate('fixture.calls.filter(c=>["audio_start","audio_stop"].includes(c.command)).at(-1).command') == 'audio_start'
-    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·')
+    expect(page.locator('#beat-state')).to_contain_text('Waiting for player audio')
     page.evaluate('fixture.delayStop=false')
     page.evaluate('fixture.title="Next track"'); page.wait_for_timeout(1400)
     expect(page.locator('#title')).to_have_text('Next track')
     assert page.evaluate('fixture.calls.filter(c=>c.command==="audio_start").at(-1).args.index')==101
     page.locator('#controls').click();page.locator('[data-tab="audio"]').click();page.locator('[data-audio="202"]').click()
-    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·')
+    expect(page.locator('#beat-state')).to_contain_text('Waiting for player audio')
     calls=page.evaluate('fixture.calls.filter(c=>["audio_start","audio_stop"].includes(c.command)).slice(-2)')
     assert calls[0]['command']=='audio_stop' and calls[1]['args']['index']==202, calls
     page.evaluate('fixture.fail=true');page.locator('[data-audio="101"]').click()
     expect(page.locator('#notice')).to_contain_text('Audio unavailable')
     page.locator('#dismiss-notice').click(); expect(page.locator('#notice')).to_be_hidden()
     page.evaluate('fixture.fail=false');page.locator('[data-audio="101"]').click()
-    expect(page.locator('#beat-state')).to_contain_text('Beat sync ·')
+    expect(page.locator('#beat-state')).to_contain_text('Waiting for player audio')
     page.evaluate('fixture.emit("audio-ended", "Stream ended. Refresh streams.")')
     expect(page.locator('#notice')).to_be_visible()
     page.wait_for_timeout(8300);expect(page.locator('#notice')).to_be_hidden()

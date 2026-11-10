@@ -124,7 +124,6 @@ pub fn streams() -> Result<Vec<Stream>, String> {
 struct MtaClient(IAudioClient);
 unsafe impl Send for MtaClient {}
 struct Activation {
-    _params: Box<AUDIOCLIENT_ACTIVATION_PARAMS>,
     variant: Box<PROPVARIANT>,
 }
 // Read-only, heap-stable activation memory stays alive through callback release.
@@ -154,7 +153,7 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
     }
 }
 fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient, String> {
-    let mut params = Box::new(AUDIOCLIENT_ACTIVATION_PARAMS {
+    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
         Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
             ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
@@ -162,7 +161,18 @@ fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient
                 ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
             },
         },
-    });
+    };
+    // PROPVARIANT's destructor calls PropVariantClear, which owns VT_BLOB data
+    // through CoTaskMemFree. A borrowed Rust Box here would be freed twice by
+    // incompatible allocators when activation completes (heap corruption).
+    let storage = unsafe { CoTaskMemAlloc(std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>()) }
+        .cast::<AUDIOCLIENT_ACTIVATION_PARAMS>();
+    if storage.is_null() {
+        return Err("Windows could not allocate player capture parameters.".into());
+    }
+    unsafe {
+        storage.write(params);
+    }
     let variant = Box::new(PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
@@ -170,17 +180,14 @@ fn activate(pid: u32, generation: &AtomicU64, token: u64) -> Result<IAudioClient
                 Anonymous: PROPVARIANT_0_0_0 {
                     blob: BLOB {
                         cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                        pBlobData: (&mut *params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast(),
+                        pBlobData: storage.cast(),
                     },
                 },
                 ..Default::default()
             }),
         },
     });
-    let activation = Arc::new(Activation {
-        _params: params,
-        variant,
-    });
+    let activation = Arc::new(Activation { variant });
     let (sender, receiver) = mpsc::sync_channel(1);
     let handler: IActivateAudioInterfaceCompletionHandler = Completion {
         sender: Mutex::new(Some(sender)),
@@ -312,6 +319,42 @@ impl Drop for Process {
         let _ = unsafe { CloseHandle(self.0) };
     }
 }
+fn initialize_loopback(client: &IAudioClient) -> Result<(IAudioCaptureClient, Process), String> {
+    // Process loopback supports this fixed IEEE-float stereo format independent
+    // of the physical endpoint. AUTOCONVERTPCM handles differing source formats.
+    let format = WAVEFORMATEX {
+        wFormatTag: 3,
+        nChannels: 2,
+        nSamplesPerSec: 48_000,
+        nAvgBytesPerSec: 384_000,
+        nBlockAlign: 8,
+        wBitsPerSample: 32,
+        cbSize: 0,
+    };
+    // Process loopback follows the SDK's event-driven initialization. Let Windows
+    // choose its buffer size; the event also avoids polling a silent stream.
+    let sample_event = Process(
+        unsafe { CreateEventW(None, false, false, None) }
+            .map_err(|e| format!("Could not create the player audio event: {e}"))?,
+    );
+    unsafe {
+        client.Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_LOOPBACK
+                | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+                | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+            0,
+            0,
+            &format,
+            None,
+        )
+    }
+    .map_err(|e| e.to_string())?;
+    unsafe { client.SetEventHandle(sample_event.0) }
+        .map_err(|e| format!("Could not listen for player audio: {e}"))?;
+    let capture: IAudioCaptureClient = unsafe { client.GetService() }.map_err(|e| e.to_string())?;
+    Ok((capture, sample_event))
+}
 fn capture(
     app: &AppHandle,
     pid: u32,
@@ -342,41 +385,22 @@ fn capture(
     if generation.load(Ordering::SeqCst) != token {
         return Ok(());
     }
-    // Process loopback supports this fixed IEEE-float stereo format independent
-    // of the physical endpoint. AUTOCONVERTPCM handles differing source formats.
-    let format = WAVEFORMATEX {
-        wFormatTag: 3,
-        nChannels: 2,
-        nSamplesPerSec: 48_000,
-        nAvgBytesPerSec: 384_000,
-        nBlockAlign: 8,
-        wBitsPerSample: 32,
-        cbSize: 0,
-    };
-    // Process loopback follows the SDK's event-driven initialization. Let Windows
-    // choose its buffer size; the event also avoids polling a silent stream.
-    let sample_event = Process(unsafe { CreateEventW(None, false, false, None) }
-        .map_err(|e| format!("Could not create the player audio event: {e}"))?);
-    unsafe {
-        client.Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-            0,
-            0,
-            &format,
-            None,
-        )
-    }
-    .map_err(|e| e.to_string())?;
-    unsafe { client.SetEventHandle(sample_event.0) }
-        .map_err(|e| format!("Could not listen for player audio: {e}"))?;
-    let capture: IAudioCaptureClient = unsafe { client.GetService() }.map_err(|e| e.to_string())?;
+    let (capture, sample_event) = initialize_loopback(&client)?;
     if generation_changed(generation, token, app) {
         return Err("Audio capture canceled.".into());
     }
     unsafe { client.Start() }.map_err(|e| e.to_string())?;
     let _ = ready.send(Ok(()));
-    let result = analyze(app, &capture, &sample_event, &process, pid, binary, generation, token);
+    let result = analyze(
+        app,
+        &capture,
+        &sample_event,
+        &process,
+        pid,
+        binary,
+        generation,
+        token,
+    );
     let _ = unsafe { client.Stop() };
     result
 }
@@ -480,4 +504,33 @@ fn analyze(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn windows_process_loopback_activates_and_starts_with_the_production_format() {
+        // Real Windows APIs, restricted to this test process; no microphone,
+        // other application, saved audio or manufactured synchronization.
+        let _apartment = crate::windows::Apartment::new().expect("Windows audio apartment");
+        for _ in 0..3 {
+            let generation = AtomicU64::new(1);
+            let client = activate(std::process::id(), &generation, 1)
+                .expect("Windows process-loopback activation");
+            let (capture, _event) =
+                initialize_loopback(&client).expect("Production float/event capture format");
+            unsafe { client.Start() }.expect("Windows capture start");
+            let packet = unsafe { capture.GetNextPacketSize() };
+            let stopped = unsafe { client.Stop() };
+            assert!(
+                packet.is_ok(),
+                "Reading the real capture client failed: {packet:?}"
+            );
+            assert!(
+                stopped.is_ok(),
+                "Stopping the real capture client failed: {stopped:?}"
+            );
+        }
+    }
 }

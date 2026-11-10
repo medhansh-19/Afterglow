@@ -40,6 +40,7 @@ jobs:
           done
           python windows/tests/ui.py
           python windows/tests/regressions-ui.py
+          python windows/tests/desktop-ui.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -103,6 +104,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix linux
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Start Windows audio services for real loopback acceptance
+        run: |
+          Set-Service AudioEndpointBuilder -StartupType Manual
+          Set-Service Audiosrv -StartupType Manual
+          Start-Service AudioEndpointBuilder
+          Start-Service Audiosrv
       - name: Windows native unit checks
         run: |
           $env:TAURI_CONFIG = Get-Content windows/tauri.windows.conf.json -Raw
@@ -127,7 +134,14 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
-          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native'
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-native-validation
+          path: |
+            windows/test-results/native/
+            windows/test-results/native-legacy/
       - name: Stage preview packages and instructions
         if: always()
         run: |
@@ -150,3 +164,28 @@ jobs:
         with:
           path: .build
           key: ${{ steps.swift-cache.outputs.cache-primary-key }}
+
+  legacy-desktop:
+    needs: windows
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: afterglow-windows-x86_64-preview
+          path: windows/download
+      - name: Validate legacy desktop in an isolated installed session
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem windows/download -Recurse -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Installer missing' }
+          $install = Join-Path $env:RUNNER_TEMP 'afterglow-legacy-installed'
+          $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
+          if ($setup.ExitCode -ne 0) { throw 'Installer failed' }
+          ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native-legacy -CheckDesktop -DesktopLayout legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-legacy-validation
+          path: windows/test-results/native-legacy

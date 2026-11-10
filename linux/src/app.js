@@ -23,6 +23,8 @@ import { createLyricRetries } from "./lyric-retry";
 const lyricRetries = createLyricRetries();
 import { appearanceSky } from "./appearance-sky";
 import { createNotice } from "./notice";
+import { listeningFooter, updateFooter } from "./listening-footer";
+import { matchingAudioStream, audioStatus } from "./audio-source";
 import { CLOCK_STYLES } from "./clock-preview";
 
 const $ = (s) => document.querySelector(s);
@@ -35,6 +37,7 @@ const transportIcons = {
   next: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h3v14h-3zM5 5v14l10-7z"/></svg>',
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>',
 };
+let lastDesktopLyrics = null;
 let lastPublish = 0,
   lastWallpaper = "",
   onBattery = false,
@@ -42,7 +45,7 @@ let lastPublish = 0,
   revision = 0,
   lastRender = "";
 $("#app").innerHTML =
-  `<main class="stage"><canvas id="waves" aria-hidden="true"></canvas><header class="topbar"><span class="brand">afterglow<span>${platformName.toUpperCase()} PREVIEW</span></span><div class="top-actions"><button id="focus" title="Focus Mode (Ctrl+Shift+F)">Focus</button><button id="desktop" title="Desktop Mode (Ctrl+Shift+D)">Desktop</button><button id="fullscreen" title="Full screen (Ctrl+F)">Full screen</button><button id="controls" aria-label="Controls" aria-haspopup="dialog" title="Controls (Ctrl+K)">Controls <span>⌃K</span></button></div></header><div id="clock" class="clock"></div><div id="graph" class="graph" role="img"></div><div id="plain-text" class="plain-display"></div><section id="welcome" class="welcome"><span class="eyebrow">YOUR MUSIC, IN A DIFFERENT LIGHT</span><h1>Put on a song.<br><em>Stay a little longer.</em></h1><p>Connect a music player to bring its words,<br>colors and movement into the room.</p><div class="welcome-actions"><button class="primary" id="connect">Connect a player</button><button id="demo">Try the silent demo</button></div><p class="preview-note">${native ? (isWindows ? "Spotify, Apple Music and Windows media players · Audio stays on this computer" : "Spotify and other MPRIS players · Audio stays on this computer") : `Browser preview · Install the ${platformName} app to connect your music`}</p></section><section class="now-playing" hidden><div class="track-meta"><img id="artwork" alt="" hidden><div><h2 id="title"></h2><p id="artist"></p></div><button id="save-song" title="Save song to a collection">♡</button></div><div class="transport"><button data-transport="previous" aria-label="Previous track">${transportIcons.previous}</button><button data-transport="toggle" id="play" aria-label="Play or pause">${transportIcons.play}</button><button data-transport="next" aria-label="Next track">${transportIcons.next}</button><button data-transport="stop" aria-label="Stop playback">${transportIcons.stop}</button><span id="time">0:00</span><input id="seek" aria-label="Playback position" type="range" min="0" max="100" step=".1"><span id="duration">0:00</span></div><div class="track-detail"><span id="lyric-source" hidden></span><span id="beat-state">Beat sync off</span></div></section><div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="Dismiss notification">×</button></div><button id="exit-focus" hidden>Exit Focus · Esc</button></main><dialog id="panel" aria-labelledby="panel-title"><header class="panel-header"><div><span class="eyebrow">AFTERGLOW</span><h2 id="panel-title">Controls</h2><p id="panel-subtitle" hidden>A little color. A little atmosphere.</p></div><button id="close-panel" aria-label="Close controls">✕</button></header><nav class="tabs" aria-label="Controls"><button data-tab="player">Player</button><button data-tab="appearance">Appearance</button><button data-tab="lyrics">Lyrics</button><button data-tab="collections">Collections</button><button data-tab="cards">Lyric cards</button><button data-tab="audio">Beat sync</button><button data-tab="help">Help</button></nav><p id="library-warning" role="status" hidden></p><div id="panel-body"></div><footer class="panel-footer"><button id="done-panel">Done</button></footer></dialog><input type="file" id="import-file" accept=".lrc,.txt,.yaml,.yml" hidden><input type="file" id="wallpaper-file" accept="image/png,image/jpeg,image/webp" hidden>`;
+  `<main class="stage"><canvas id="waves" aria-hidden="true"></canvas><header class="topbar"><span class="brand">afterglow<span>${platformName.toUpperCase()} PREVIEW</span></span><div class="top-actions"><button id="controls" aria-label="Controls" aria-haspopup="dialog" title="Controls (Ctrl+K)">Controls <span>⌃K</span></button></div></header><div id="clock" class="clock"></div><div id="graph" class="graph" role="img"></div><div id="plain-text" class="plain-display"></div><section id="welcome" class="welcome"><span class="eyebrow">YOUR MUSIC, IN A DIFFERENT LIGHT</span><h1>Put on a song.<br><em>Stay a little longer.</em></h1><p>Connect a music player to bring its words,<br>colors and movement into the room.</p><div class="welcome-actions"><button class="primary" id="connect">Connect a player</button><button id="demo">Try the silent demo</button></div><p class="preview-note">${native ? (isWindows ? "Spotify, Apple Music and Windows media players · Audio stays on this computer" : "Spotify and other MPRIS players · Audio stays on this computer") : `Browser preview · Install the ${platformName} app to connect your music`}</p></section>${listeningFooter()}<img id="artwork" alt="" hidden><span id="lyric-source" hidden></span><div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="Dismiss notification">×</button></div><button id="exit-focus" hidden>Exit Focus · Esc</button></main><dialog id="panel" aria-labelledby="panel-title"><header class="panel-header"><div><span class="eyebrow">AFTERGLOW</span><h2 id="panel-title">Controls</h2><p id="panel-subtitle" hidden>A little color. A little atmosphere.</p></div><button id="close-panel" aria-label="Close controls">✕</button></header><nav class="tabs" aria-label="Controls"><button data-tab="player">Player</button><button data-tab="appearance">Appearance</button><button data-tab="lyrics">Lyrics</button><button data-tab="collections">Collections</button><button data-tab="cards">Lyric cards</button><button data-tab="audio">Beat sync</button><button data-tab="help">Help</button></nav><div class="mode-controls" aria-label="Display mode"><button id="focus" title="Focus Mode (Ctrl+Shift+F)">Focus</button><button id="desktop" title="Desktop Mode (Ctrl+Shift+D)">Desktop</button><button id="fullscreen" title="Full screen (Ctrl+F)">Full screen</button><button id="capture-screen">Save screenshot…</button></div><div id="player-transport" class="transport" aria-label="Playback controls"><button data-transport="previous" aria-label="Previous track">${transportIcons.previous}</button><button data-transport="toggle" id="play" aria-label="Play or pause">${transportIcons.play}</button><button data-transport="next" aria-label="Next track">${transportIcons.next}</button><button data-transport="stop" aria-label="Stop playback">${transportIcons.stop}</button><button id="save-song" aria-label="Save song to a collection">♡</button></div><p id="library-warning" role="status" hidden></p><div id="panel-body"></div><footer class="panel-footer"><span id="beat-state" role="status">Beat sync off</span><button id="done-panel">Done</button></footer></dialog><input type="file" id="import-file" accept=".lrc,.txt,.yaml,.yml" hidden><input type="file" id="wallpaper-file" accept="image/png,image/jpeg,image/webp" hidden>`;
 let library = newLibrary(),
   persistenceReady = false,
   saveTimer,
@@ -59,6 +62,14 @@ let library = newLibrary(),
   key = "",
   lastLine = { index: -1, words: [], active: -1 },
   audio = { level: 0, bands: [] },
+  beatEnabled = false,
+  audioBinary = null,
+  audioError = "",
+  audioRetryAt = 0,
+  audioStarted = 0,
+  audioLastFrame = 0,
+  audioLastSignal = 0,
+  audioRevision = 0,
   audioIndex = null,
   captureActive = false,
   capturePending = false,
@@ -80,10 +91,10 @@ let library = newLibrary(),
 const visual = renderer($("#waves"), $("#graph"), $("#clock"));
 let scheduledTimer = 0,
   scheduledFrame = 0;
-function wake() {
+function wake(force = true) {
   clearTimeout(scheduledTimer);
   cancelAnimationFrame(scheduledFrame);
-  lastDraw = 0;
+  if (force) lastDraw = 0;
   if (desktop) scheduledTimer = setTimeout(() => tick(performance.now()), 0);
   else scheduledFrame = requestAnimationFrame(tick);
 }
@@ -162,6 +173,7 @@ async function load() {
 function trackUI() {
   wake();
   const connected = !!track;
+  updateFooter(document, track, positionAt(sample, performance.now()));
   $("#welcome").hidden = connected;
   $(".now-playing").hidden = !connected;
   $("#title").textContent = track?.title || "No track";
@@ -187,7 +199,9 @@ function trackUI() {
     : "♡";
 }
 async function selectTrack(next) {
-  if (track?.bus !== next?.bus) audioIndex = null;
+  if (track?.bus !== next?.bus) {
+    beatEnabled = false; audioIndex = null; audioBinary = null; audioError = "";
+  }
   const nextKey = next ? recordingKey(next) : "";
   const changed = nextKey !== key;
   track = next;
@@ -411,7 +425,7 @@ async function stopCapture() {
 async function syncCapture() {
   const should =
     !sleeping &&
-    audioIndex != null &&
+    beatEnabled &&
     !demo &&
     !!sample?.playing &&
     (desktop || !document.hidden);
@@ -419,26 +433,37 @@ async function syncCapture() {
     if (captureActive || capturePending) await stopCapture();
     return;
   }
-  if (captureActive || capturePending) return;
+  if (captureActive || capturePending || performance.now() < audioRetryAt) return;
   capturePending = true;
   const generation = ++captureGeneration;
   try {
+    if (audioIndex == null) {
+      const streams = await call("audio_streams");
+      if (generation !== captureGeneration) return;
+      const source = matchingAudioStream(streams, track, audioBinary);
+      if (!source) throw Error("Choose your player’s audio stream in Beat sync settings. Afterglow will not guess between multiple processes.");
+      audioIndex = source.index;
+      audioBinary = source.binary;
+    }
     await captureCommand("audio_start", { index: audioIndex }, generation);
     if (generation !== captureGeneration) return;
     captureActive = true;
+    audioStarted = performance.now(); audioLastFrame = 0; audioLastSignal = 0; audioError = "";
     if (
       sleeping || !sample?.playing ||
       (!desktop && document.hidden) ||
       audioIndex == null
     )
       await stopCapture();
-    else $("#beat-state").textContent = "Beat sync · Selected audio stream";
+    updateAudioStatus();
   } catch (err) {
     if (generation === captureGeneration) {
       audioIndex = null;
       audio = { level: 0, bands: [] };
+      audioError = err instanceof Error ? err.message : String(err);
+      audioRetryAt = performance.now() + 5000;
       report(err);
-      $("#beat-state").textContent = "Beat sync unavailable";
+      updateAudioStatus();
     }
   } finally {
     if (generation === captureGeneration) capturePending = false;
@@ -460,11 +485,12 @@ async function toggleFocus() {
 async function toggleDesktop() {
   try {
     lastWallpaper = "";
-    await call("desktop_mode", { enabled: !desktop });
-    desktop = !desktop;
+    const enabled = !desktop;
+    await call("desktop_mode", { enabled });
+    desktop = enabled;
     wake();
-    document.body.classList.toggle("desktop-mode", desktop);
-    $("#desktop").textContent = desktop ? "Return to window" : "Desktop";
+    await syncCapture();
+    $("#desktop").textContent = desktop ? "Stop Desktop Mode" : "Desktop";
     notice(
       desktop
         ? "Desktop mode · Use the tray menu to return to the window."
@@ -473,6 +499,20 @@ async function toggleDesktop() {
   } catch (err) {
     report(err);
   }
+}
+function updateAudioStatus(now = performance.now()) {
+  const status = audioStatus({ enabled: beatEnabled, pending: capturePending, active: captureActive, playing: !!sample?.playing, sleeping, visible: desktop || !document.hidden, now, lastFrame: audioLastFrame, lastSignal: audioLastSignal, started: audioStarted, error: audioError });
+  $("#beat-state").textContent = status;
+  if ($("#appearance-beat-state")) $("#appearance-beat-state").textContent = status.replace(/^Beat sync[ ·]*/, "");
+  const toggle = $("#beat-sync");
+  if (toggle) toggle.checked = beatEnabled;
+}
+async function setBeatEnabled(enabled) {
+  beatEnabled = enabled;
+  audioRetryAt = 0; audioError = "";
+  if (!enabled) { audioIndex = null; audioBinary = null; await stopCapture(); }
+  await syncCapture();
+  updateAudioStatus();
 }
 function openPanel(tab = "player") {
   panelTab = tab;
@@ -532,7 +572,7 @@ function renderPanel() {
     appearance: () => {
       const active = colorCollection(library, key);
       const album = active?.color === "album" || (!active?.color && s.albumColor);
-      return `<div class="appearance-layout"><div class="appearance-preview-column">${livePreview()}<section><h3>Wallpaper</h3><div class="button-row"><button id="choose-wallpaper">Choose image…</button><button id="clear-wallpaper" ${s.wallpaper ? "" : "disabled"}>Remove</button></div><label>Opacity<input type="range" data-setting="opacity" min="0" max="1" step=".05" value="${s.opacity}"></label></section><section><h3>Keep this song’s mood</h3><p>Save this appearance for the current recording.</p><div class="button-row"><button id="save-scene" ${!track ? "disabled" : ""}>${library.scenes[key] ? "Update" : "Save"} scene for this song</button><button id="remove-scene" ${!library.scenes[key] ? "disabled" : ""}>Remove song scene</button></div><div class="button-row"><button id="capture-map" ${!track ? "disabled" : ""}>Export lyric map</button><button id="copy-map" ${!track ? "disabled" : ""}>Copy lyric map</button></div></section></div><div class="appearance-controls-column"><section><h3>Lyric color <small id="current-color">${e(s.color.toUpperCase())}</small></h3>${active?.color ? `<p>Editing ${e(active.name)}’s color for all its songs.</p>` : ""}${toggle("albumColor", "Use album colors", album)}<div class="preset-swatches" aria-label="Lyric colors">${Object.entries(PRESET_COLORS).map(([name, value]) => `<button data-lyric-color="${value}" style="--swatch:${value}" aria-label="${e(name)}" aria-pressed="${!album && s.color.toLowerCase() === value}" title="${e(name)}"></button>`).join("")}</div><div class="color-edit-row"><label>Custom color<input type="color" data-setting="tint" value="${e(s.color)}"></label>${presetPicker("lyrics", album ? "album" : s.color, true)}</div><h4>Your colors</h4><div class="swatches">${library.colors.map((c, i) => `<div><button data-color="${i}" style="--swatch:${e(c.color)}" title="${e(c.name)}">${e(c.name)}</button><label>Color name<input data-color-name="${i}" value="${e(c.name)}" maxlength="40"></label><button data-delete-swatch="${i}" aria-label="Delete ${e(c.name)} color">×</button></div>`).join("")}</div><div class="save-color-row"><label>Color name<input id="saved-color-name" maxlength="40" placeholder="Name this color"></label><button id="save-color">Save this color</button></div></section><section><h3>On your screen</h3>${toggle("clock", "Show clock", s.clock)}${toggle("motion", "Flowing animation", s.motion)}<div class="setting-row"><span>Beat sync</span><button id="configure-audio">${audioIndex == null ? "Set up…" : "Settings…"}</button><span id="appearance-beat-state">${captureActive ? "Listening" : audioIndex == null ? "Off" : "Paused"}</span></div>${select("marker", "Word marker", ["diamond", "circle", "triangle", "star", "octagon", "rectangle", "sparkle"], s.marker)}<label>Custom emoji<input data-setting="emoji" value="${e(s.emoji)}" maxlength="12"></label><label>Word size<input type="range" data-setting="fontSize" min="22" max="60" value="${s.fontSize}"></label>${toggle("estimatedWords", "Estimate word progression", s.estimatedWords)}${toggle("chorusMemory", "Remember chorus arrangements", s.chorusMemory)}</section><section><h3>Clock</h3><div class="form-grid"><label>Clock color<input type="color" data-setting="clockColor" value="${e(s.clockColor)}"></label>${presetPicker("clock", s.clockColor)}${select("clockStyle", "Clock style", CLOCK_STYLES, s.clockStyle)}${select("format", "Hour format", ["System", "12", "24"], s.format)}</div>${toggle("clockFollowsLyrics", "Clock follows lyric color", s.clockFollowsLyrics)}${toggle("seconds", "Show seconds", s.seconds)}${toggle("date", "Show date", s.date)}<label>Clock size<input type="range" data-setting="clockSize" min="70" max="140" value="${s.clockSize}"></label></section><div class="button-row"><button id="reset-appearance">Reset default appearance</button></div></div></div>`;
+      return `<div class="appearance-layout"><div class="appearance-preview-column">${livePreview()}<section><h3>Wallpaper</h3><div class="button-row"><button id="choose-wallpaper">Choose image…</button><button id="clear-wallpaper" ${s.wallpaper ? "" : "disabled"}>Remove</button></div><label>Opacity<input type="range" data-setting="opacity" min="0" max="1" step=".05" value="${s.opacity}"></label></section><section><h3>Keep this song’s mood</h3><p>Save this appearance for the current recording.</p><div class="button-row"><button id="save-scene" ${!track ? "disabled" : ""}>${library.scenes[key] ? "Update" : "Save"} scene for this song</button><button id="remove-scene" ${!library.scenes[key] ? "disabled" : ""}>Remove song scene</button></div><div class="button-row"><button id="capture-map" ${!track ? "disabled" : ""}>Export lyric map</button><button id="copy-map" ${!track ? "disabled" : ""}>Copy lyric map</button></div></section></div><div class="appearance-controls-column"><section><h3>Lyric color <small id="current-color">${e(s.color.toUpperCase())}</small></h3>${active?.color ? `<p>Editing ${e(active.name)}’s color for all its songs.</p>` : ""}${toggle("albumColor", "Use album colors", album)}<div class="preset-swatches" aria-label="Lyric colors">${Object.entries(PRESET_COLORS).map(([name, value]) => `<button data-lyric-color="${value}" style="--swatch:${value}" aria-label="${e(name)}" aria-pressed="${!album && s.color.toLowerCase() === value}" title="${e(name)}"></button>`).join("")}</div><div class="color-edit-row"><label>Custom color<input type="color" data-setting="tint" value="${e(s.color)}"></label>${presetPicker("lyrics", album ? "album" : s.color, true)}</div><h4>Your colors</h4><div class="swatches">${library.colors.map((c, i) => `<div><button data-color="${i}" style="--swatch:${e(c.color)}" title="${e(c.name)}">${e(c.name)}</button><label>Color name<input data-color-name="${i}" value="${e(c.name)}" maxlength="40"></label><button data-delete-swatch="${i}" aria-label="Delete ${e(c.name)} color">×</button></div>`).join("")}</div><div class="save-color-row"><label>Color name<input id="saved-color-name" maxlength="40" placeholder="Name this color"></label><button id="save-color">Save this color</button></div></section><section><h3>On your screen</h3>${toggle("clock", "Show clock", s.clock)}${toggle("motion", "Flowing animation", s.motion)}<label class="toggle"><span>Beat sync</span><input id="beat-sync" type="checkbox" role="switch" ${beatEnabled ? "checked" : ""} ${!track || demo ? "disabled" : ""}></label><div class="setting-row"><button id="configure-audio">${audioIndex == null ? "Set up…" : "Settings…"}</button><span id="appearance-beat-state">${captureActive ? "Listening" : audioIndex == null ? "Off" : "Paused"}</span></div>${select("marker", "Word marker", ["diamond", "circle", "triangle", "star", "octagon", "rectangle", "sparkle"], s.marker)}<label>Custom emoji<input data-setting="emoji" value="${e(s.emoji)}" maxlength="12"></label><label>Word size<input type="range" data-setting="fontSize" min="22" max="60" value="${s.fontSize}"></label>${toggle("estimatedWords", "Estimate word progression", s.estimatedWords)}${toggle("chorusMemory", "Remember chorus arrangements", s.chorusMemory)}</section><section><h3>Clock</h3><div class="form-grid"><label>Clock color<input type="color" data-setting="clockColor" value="${e(s.clockColor)}"></label>${presetPicker("clock", s.clockColor)}${select("clockStyle", "Clock style", CLOCK_STYLES, s.clockStyle)}${select("format", "Hour format", ["System", "12", "24"], s.format)}</div>${toggle("clockFollowsLyrics", "Clock follows lyric color", s.clockFollowsLyrics)}${toggle("seconds", "Show seconds", s.seconds)}${toggle("date", "Show date", s.date)}<label>Clock size<input type="range" data-setting="clockSize" min="70" max="140" value="${s.clockSize}"></label></section><div class="button-row"><button id="reset-appearance">Reset default appearance</button></div></div></div>`;
     },
     lyrics: () =>
       `<h3>Lyrics & timing</h3><p>${e($("#lyric-source").textContent || "Connect a player first.")}</p><label>Adjustment: ${Number(library.timing[key] || 0).toFixed(1)} s<input type="range" id="timing" min="-5" max="5" step=".1" value="${library.timing[key] || 0}" ${!track ? "disabled" : ""}></label><p>Positive values display lyrics later. Word timestamps are preserved; estimated progression is used only when enabled.</p><div class="button-row"><button id="retry-lyrics" ${!track ? "disabled" : ""}>Retry synced lyrics</button><button id="import-lyrics" ${!track ? "disabled" : ""}>Import LRC, TXT or YAML</button><button id="remove-import" ${!(library.imports[key] || library.matches[key]) ? "disabled" : ""}>Use online lyrics</button></div>${toggle("allowTimedFallback", "Use Karalyr and NetEase backups", s.allowTimedFallback)}${toggle("allowPlainFallback", "Allow untimed lyrics.ovh fallback", s.allowPlainFallback)}${documentLyrics?.alternatives?.length ? `<h3>Choose another recording</h3>${documentLyrics.alternatives.map((a, i) => `<button class="list-row" data-alternative="${i}">${e(a.title)} · ${e(a.artist)} · ${timeLabel(a.duration)}</button>`).join("")}` : ""}<div class="lyric-list">${(documentLyrics?.lines || []).map((l, i) => `<button class="lyric-row" data-line="${i}"><time>${timeLabel(l.time)}</time><span>${e(l.text || "Instrumental")}</span></button>`).join("") || `<p class="plain-lyrics">${e(documentLyrics?.plainText || "No lyrics loaded.")}</p>`}</div>`,
@@ -556,7 +596,7 @@ function renderPanel() {
           .join("") || "<p>Connect a song with lyrics to create a card.</p>"
       }</div><div><canvas id="card-preview" width="1080" height="1350" aria-label="Lyric card preview"></canvas><div class="button-row"><button id="save-excerpt">Save excerpt</button><button id="export-card">Export PNG</button><button id="copy-card">Copy image</button></div></div></div><h3>Saved excerpts</h3><div class="list">${library.excerpts.map((x, i) => `<div class="saved-song"><button data-excerpt="${i}">${e(x.track.title)}<small>${e(x.text)}</small></button><button data-delete-excerpt="${i}" aria-label="Delete excerpt">×</button></div>`).join("") || "<p>No saved excerpts yet.</p>"}</div>`,
     audio: () =>
-      `<h3>Beat sync</h3><p>Choose the audio stream belonging to your player. Only that stream is analyzed locally. Afterglow does not capture your microphone, record audio files, or upload audio.</p><div id="audio-list" class="list">Finding audio streams…</div><div class="button-row"><button id="refresh-audio">Refresh audio streams</button><button id="stop-audio">Disable beat sync</button></div><p>Capture follows playback, including while Controls are open, and pauses while the app is hidden without a visible wallpaper. If your output device changes, select the stream again.</p>`,
+      `<h3>Beat sync</h3><label class="toggle"><span>Enable beat sync</span><input id="beat-sync" type="checkbox" role="switch" ${beatEnabled ? "checked" : ""} ${!track || demo ? "disabled" : ""}></label><p>Choose the audio stream belonging to your player. Only that stream is analyzed locally. Afterglow does not capture your microphone, record audio files, or upload audio.</p><div id="audio-list" class="list">Finding audio streams…</div><div class="button-row"><button id="refresh-audio">Refresh audio streams</button><button id="stop-audio">Disable beat sync</button></div><p>Capture follows playback, including while Controls are open, and pauses while the app is hidden without a visible wallpaper. If your output device changes, select the stream again.</p>`,
     help: () =>
       `<h3>Afterglow for ${platformName}</h3><button id="enable-shortcuts">Enable global shortcuts</button>${isWindows ? '<button id="disable-shortcuts">Disable global shortcuts</button>' : ""}<p id="shortcut-status">${isWindows ? "Windows reserves Ctrl+Shift+F/D/B/A/M while Afterglow runs. A conflict is reported without replacing another app’s binding." : "Your desktop will ask you to approve the bindings."}</p><p>This is a development preview. The Mac app remains available separately. ${platformName} desktop integration is still being validated.</p><dl><dt>Open controls</dt><dd>Ctrl+K</dd><dt>Focus Mode</dt><dd>Ctrl+Shift+F</dd><dt>Desktop Mode</dt><dd>Ctrl+Shift+D</dd><dt>Beat sync settings</dt><dd>Ctrl+Shift+B</dd><dt>Appearance</dt><dd>Ctrl+Shift+A</dd><dt>Export lyric map</dt><dd>Ctrl+Shift+M</dd></dl><p>${isWindows ? "Choose Enable global shortcuts to register these bindings for the current session." : "These shortcuts work while Afterglow is focused. To use them globally on your desktop, bind the installed application with <code>--action focus</code>, <code>--action desktop</code>, <code>--action beats</code>, <code>--action appearance</code>, or <code>--action capture</code> in your desktop’s keyboard settings."}</p><p>${isWindows ? "Desktop mode places a separate click-through view behind desktop icons on the current monitor. Explorer restarts and monitor changes still need hardware testing." : "Desktop mode uses X11 desktop windows or Wayland Layer Shell on compatible KDE/wlroots compositors. GNOME Wayland needs separate integration. Desktop behavior is still being validated."} Passive screenshot detection is not available in this preview; use Export lyric map.</p><p>${isWindows ? "Players must publish Windows media sessions. Beat sync uses a selected process tree on Windows 11; a browser tree may include multiple tabs. Choose the player process explicitly. Protected audio may be silent." : "Apple Music on Linux depends on browser MPRIS support. The browser may expose audio for multiple tabs as one stream."}</p><p>Metadata is sent only to enabled lyric providers. Artwork is fetched from the player’s artwork host. Collections, scenes, wallpapers and imports stay on this computer.</p>`,
   };
@@ -566,6 +606,7 @@ function renderPanel() {
   if (panelTab === "player") listPlayers();
   if (panelTab === "audio") listAudio();
   if (panelTab === "cards") drawCard();
+  updateAudioStatus();
 }
 async function listPlayers() {
   try {
@@ -591,7 +632,7 @@ async function listAudio() {
       ? streams
           .map(
             (s) =>
-              `<button class="list-row" data-audio="${s.index}"><strong>${e(s.name)}</strong><span>${e(s.binary)} ${s.index === audioIndex ? "· Selected" : ""}</span></button>`,
+              `<button class="list-row" data-audio="${s.index}" data-audio-binary="${e(s.binary)}"><strong>${e(s.name)}</strong><span>${e(s.binary)} ${s.index === audioIndex ? "· Selected" : ""}</span></button>`,
           )
           .join("")
       : "<p>No active audio streams. Start playback, then refresh.</p>";
@@ -668,11 +709,11 @@ function drawCard() {
     c.fillText("Choose your favorite lines.", 100, 650);
   }
 }
-async function captureMap(copy = false) {
+async function captureMap(copy = false, screenshot = false) {
   if (!track) throw Error("Connect a song first.");
   await saveImage(
-    await visual.drawMap(track, lastLine, effective().color),
-    "Afterglow-lyric-map.png",
+    await visual.drawMap(track, lastLine, effective().color, screenshot),
+    screenshot ? "Afterglow-screenshot.png" : "Afterglow-lyric-map.png",
     copy,
   );
 }
@@ -773,6 +814,8 @@ async function action(id) {
       saveColor(library, effective().color, $("#saved-color-name").value);
       persist();
       return renderPanel();
+    case "capture-screen":
+      return captureMap(false, true);
     case "capture-map":
       return captureMap();
     case "copy-map":
@@ -793,9 +836,7 @@ async function action(id) {
     case "refresh-audio":
       return listAudio();
     case "stop-audio":
-      audioIndex = null;
-      await stopCapture();
-      $("#beat-state").textContent = "Beat sync off";
+      await setBeatEnabled(false);
       return listAudio();
     case "save-excerpt": {
       const data = cardData();
@@ -838,7 +879,10 @@ $("#app").addEventListener("click", (event) => {
         audioIndex = null;
         await stopCapture();
         audioIndex = Number(button.dataset.audio);
+        audioBinary = button.dataset.audioBinary;
+        beatEnabled = true; audioRetryAt = 0; audioError = "";
         await syncCapture();
+        updateAudioStatus();
         return listAudio();
       }
       if (button.dataset.lyricColor) {
@@ -941,6 +985,7 @@ $("#app").addEventListener("click", (event) => {
 $("#panel-body").addEventListener("input", (event) => {
   const input = event.target;
   try {
+    if (input.id === "beat-sync") { setBeatEnabled(input.checked).catch(report); return; }
     if (input.dataset.setting) {
       const name = input.dataset.setting;
       let value =
@@ -1105,6 +1150,7 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshPlayers();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.code === "Space" && track && !$("#panel").open && !["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(event.target.tagName)) { event.preventDefault(); transport("toggle"); return; }
   if (event.key === "Escape" && focused && !$("#panel").open) {
     toggleFocus();
     return;
@@ -1156,15 +1202,31 @@ if (native) {
     }
   });
   await listen("audio-frame", (event) => {
-    if (captureActive || capturePending) audio = event.payload;
+    if (captureActive || capturePending) {
+      audio = event.payload;
+      audioLastFrame = performance.now();
+      audioRevision++;
+      if (!document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) wake(false);
+      if (audio.level > .005 || audio.bands?.some((value) => value > .01)) audioLastSignal = audioLastFrame;
+      updateAudioStatus();
+    }
   });
   await listen("audio-ended", (event) => {
     captureActive = false;
     audioIndex = null;
     audio = { level: 0, bands: [] };
-    $("#beat-state").textContent = "Beat sync disconnected";
+    audioError = String(event.payload);
+    audioRetryAt = performance.now() + 5000;
+    updateAudioStatus();
     report(event.payload);
   });
+  await listen("desktop-state", (event) => {
+    desktop = !!event.payload.enabled;
+    $("#desktop").textContent = desktop ? "Stop Desktop Mode" : "Desktop";
+    if (desktop) { lastWallpaper = ""; lastDesktopLyrics = null; }
+    syncCapture(); wake();
+  });
+  await listen("display-request", () => { lastWallpaper = ""; lastDesktopLyrics = null; lastPublish = 0; wake(); });
   await listen("restore-window", () => {
     desktop = false;
     document.body.classList.remove("desktop-mode");
@@ -1176,8 +1238,12 @@ if (native) {
   });
 }
 async function dispatchAction(action) {
-  if (desktop && ["focus", "beats", "appearance", "capture"].includes(action))
-    await toggleDesktop();
+  if (desktop && action === "focus") await toggleDesktop();
+  if (desktop && native && ["beats", "appearance", "capture"].includes(action)) {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().show();
+    await getCurrentWindow().setFocus();
+  }
   const actions = {
     focus: toggleFocus,
     desktop: toggleDesktop,
@@ -1190,7 +1256,7 @@ async function dispatchAction(action) {
 function tick(now) {
   const animate =
     sample?.playing &&
-    effective().motion &&
+    (effective().motion || captureActive) &&
     (desktop || !document.hidden) &&
     !sleeping;
   scheduledTimer = setTimeout(
@@ -1203,7 +1269,8 @@ function tick(now) {
   if ((document.hidden && !desktop) || sleeping) return;
   const settings = effective();
   if ($("#panel").open) updatePanelTint(settings.color);
-  const interval = sample?.playing && settings.motion ? (onBattery ? 66 : 33) : 200;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const interval = sample?.playing && (settings.motion || captureActive) ? (onBattery ? 66 : 33) : 200;
   if (now - lastDraw < interval) return;
   lastDraw = now;
   const position = positionAt(sample, now);
@@ -1232,6 +1299,7 @@ function tick(now) {
     innerWidth,
     innerHeight,
     visual.revision,
+    captureActive && !reduced ? audioRevision : 0,
   ].join(":");
   if ((sample?.playing && settings.motion) || signature !== lastRender) {
     visual.draw(now, {
@@ -1252,20 +1320,28 @@ function tick(now) {
   }
   // Untimed text stays in the explicit lyric library, never masquerading as a synced graph.
   $("#plain-text").textContent = "";
-  if (sample) {
-    $("#time").textContent = timeLabel(position);
-    if (document.activeElement !== $("#seek")) $("#seek").value = position;
-  }
+  updateFooter(document, track, position);
+  updateAudioStatus(now);
+  if (beatEnabled && !captureActive && !capturePending && now >= audioRetryAt) syncCapture();
   if (desktop && native && now - lastPublish > 100) {
     lastPublish = now;
     const outputSettings = { ...settings };
     if (lastWallpaper === settings.wallpaper) delete outputSettings.wallpaper;
     else lastWallpaper = settings.wallpaper;
+    const lyrics = documentLyrics?.lines || [];
+    const changedLyrics = lastDesktopLyrics !== lyrics;
+    lastDesktopLyrics = lyrics;
     call("publish_display", {
       state: {
         settings: outputSettings,
         line: lastLine,
         playing: !!sample?.playing,
+        sample: sample ? { position, duration: sample.duration, rate: sample.rate, playing: sample.playing } : null,
+        track,
+        ...(changedLyrics ? { lyrics } : {}),
+        timing: library.timing[key] || 0,
+        audioActive: captureActive,
+        sleeping, onBattery,
         audio,
       },
     }).catch(report);
