@@ -88,3 +88,7 @@ Recommended order: measurement → deterministic runtime staging → binary/pack
 - Tauri Windows installer and WebView2 choices: https://v2.tauri.app/distribute/windows-installer/
 - Tauri configuration, including NSIS compression: https://v2.tauri.app/reference/config/
 - Microsoft PE imports and delay imports: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+
+## Implementation progress (12 November 2026)
+
+Phases 1–3 are implemented and validated: reports/budgets, complete application-runtime staging with deterministic dependency checks, compiler optimization, and obsolete-DLL cleanup on upgrades. The installer is about 21.1 MB and installed footprint about 85.6 MB, including after an upgrade; see `OPTIMIZATION_VALIDATION.md` for exact bytes and CI evidence. Imports-only staging is experimental. Phase 4 has measurement tooling but no scheduler/rendering changes; physical CPU/GPU/power profiling remains. The Rust lyric-engine replacement is deferred because removing accidentally bundled compiler tools achieved the large size reduction without changing the engine.

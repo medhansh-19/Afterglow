@@ -2,5 +2,5 @@
   "schemaVersion": 1,
   "maxInstallerBytes": 25000000,
   "maxInstalledBytes": 100000000,
-  "reason": "Default complete-runtime/balanced build measured 21,097,303 download and 85,643,004 installed bytes on 12 November 2026. Leave headroom for normal changes; require review before enlarging these budgets."
+  "reason": "Default complete-runtime/balanced build with upgrade cleanup measured 21,106,018 download and 85,643,004 installed bytes on 12 November 2026. Leave headroom for normal changes; require review before enlarging these budgets."
 }
