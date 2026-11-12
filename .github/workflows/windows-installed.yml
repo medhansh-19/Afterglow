@@ -148,6 +148,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((Get-FileHash $libraryPath -Algorithm SHA256).Hash -ne $before) { throw 'Installer modified the existing library.' }
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/after
+          if ('${{ inputs.audit_runtime }}' -eq 'true') {
+            ./windows/tests/provider-smoke.ps1 -HelperPath (Join-Path $install 'afterglow-lyrics.exe') -OutputDirectory windows/test-results/providers-after-upgrade
+          }
           $library = Get-Content $libraryPath -Raw | ConvertFrom-Json
           if ($library.settings.clockSize -ne 120 -or $library.colors[0].name -ne 'Upgrade verification' -or $library.colors[0].color -ne '#22ccaa') { throw 'Updated app did not retain saved preferences and colors.' }
           $version = [regex]::Match($installer.Name, 'Afterglow_([0-9]+\.[0-9]+\.[0-9]+)_').Groups[1].Value
