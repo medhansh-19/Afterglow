@@ -2,6 +2,11 @@ param([ValidateSet('baseline','balanced','size')][string]$NativeProfile = 'balan
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows installer on Windows.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+python (Join-Path $PSScriptRoot 'generate-installer-hooks.py') `
+    --runtime (Join-Path $repo 'linux/src-tauri/runtime') `
+    --obsolete (Join-Path $repo 'windows/obsolete-runtime-dlls.json') `
+    --output (Join-Path $repo 'windows/generated/installer-hooks.nsh')
+if ($LASTEXITCODE -ne 0) { throw 'Installer runtime cleanup generation failed.' }
 # Scope Cargo settings to this Windows build; the shared Linux manifest and
 # panic/unwind behavior remain unchanged. Baseline enables honest comparisons.
 $settings = & "$PSScriptRoot/native-profile.ps1" -NativeProfile $NativeProfile

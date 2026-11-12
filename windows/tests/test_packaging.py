@@ -19,6 +19,7 @@ def load(name):
 
 runtime = load("stage-runtime")
 package = load("measure-package")
+hooks = load("generate-installer-hooks")
 
 
 def pe_fixture(path, machine=0x8664, forwarder=None):
@@ -215,6 +216,27 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "positive integer"):
             package.load_budget(path)
         self.assertEqual(package.load_budget(SCRIPTS.parent / "size-budget.json"), [25000000, 100000000])
+
+    def test_cleanup_only_removes_historical_files_not_in_incoming_runtime(self):
+        self.dll("Keep.DLL")
+        self.dll("unknown-user-file.dll")
+        source = self.root / "obsolete.json"
+        source.write_text(json.dumps({"schemaVersion": 1, "libraries": ["keep.dll", "LTO.dll"]}))
+        output = self.root / "hooks.nsh"
+        self.assertEqual(hooks.generate(self.dlls, source, output), ["LTO.dll"])
+        text = output.read_text()
+        self.assertIn('NSIS_HOOK_POSTINSTALL', text)
+        self.assertIn('Delete "$INSTDIR\\runtime\\LTO.dll"', text)
+        self.assertNotIn('unknown-user-file.dll', text)
+        self.assertNotIn('Delete "$INSTDIR\\runtime\\keep.dll"', text)
+        self.assertNotIn('/REBOOTOK', text)
+
+    def test_cleanup_rejects_paths_and_installer_code_injection(self):
+        source = self.root / "obsolete.json"
+        for name in ["../user.dll", 'bad$INSTDIR.dll', 'bad".dll', 'bad\\file.dll']:
+            source.write_text(json.dumps({"schemaVersion": 1, "libraries": [name]}))
+            with self.assertRaisesRegex(ValueError, "Invalid historical DLL"):
+                hooks.generate(self.dlls, source, self.root / "hooks.nsh")
 
 
 if __name__ == "__main__":

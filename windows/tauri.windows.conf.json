@@ -20,7 +20,8 @@
         "installMode": "currentUser",
         "languages": [
           "English"
-        ]
+        ],
+        "installerHooks": "../../windows/generated/installer-hooks.nsh"
       }
     },
     "createUpdaterArtifacts": true
