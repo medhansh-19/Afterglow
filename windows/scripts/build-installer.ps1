@@ -4,18 +4,7 @@ if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows installer on Windows.' 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 # Scope Cargo settings to this Windows build; the shared Linux manifest and
 # panic/unwind behavior remain unchanged. Baseline enables honest comparisons.
-$settings = @{
-    CARGO_PROFILE_RELEASE_LTO = $null
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $null
-    CARGO_PROFILE_RELEASE_STRIP = $null
-    CARGO_PROFILE_RELEASE_OPT_LEVEL = $null
-}
-if ($NativeProfile -ne 'baseline') {
-    $settings.CARGO_PROFILE_RELEASE_LTO = if ($NativeProfile -eq 'size') { 'true' } else { 'thin' }
-    $settings.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
-    $settings.CARGO_PROFILE_RELEASE_STRIP = 'debuginfo'
-    $settings.CARGO_PROFILE_RELEASE_OPT_LEVEL = if ($NativeProfile -eq 'size') { 's' } else { '3' }
-}
+$settings = & "$PSScriptRoot/native-profile.ps1" -NativeProfile $NativeProfile
 $previous = @{}
 foreach ($key in $settings.Keys) {
     $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')

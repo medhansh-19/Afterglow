@@ -102,8 +102,17 @@ jobs:
           swift-version: swift-6.2.1-release
           swift-build: 6.2.1-RELEASE
       - uses: dtolnay/rust-toolchain@stable
+      - name: Use the selected compiler profile for tests and packaging
+        env:
+          NATIVE_PROFILE: ${{ inputs.native_profile || 'baseline' }}
+        run: |
+          $settings = & ./windows/scripts/native-profile.ps1 -NativeProfile $env:NATIVE_PROFILE
+          foreach ($key in $settings.Keys) {
+            if ($null -ne $settings[$key]) { "$key=$($settings[$key])" >> $env:GITHUB_ENV }
+          }
       - uses: Swatinem/rust-cache@v2
         with:
+          key: windows-${{ inputs.native_profile || 'baseline' }}
           workspaces: linux/src-tauri -> target
           cache-on-failure: true
       - uses: actions/cache/restore@v4

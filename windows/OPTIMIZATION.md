@@ -3,14 +3,14 @@
 ## Implemented
 
 - File-level installer and installed-app size reports, SHA256 hashes, component totals, baseline deltas and optional byte budgets.
-- Two Swift runtime staging modes: `full` retains the previous bundle; `imports` selects recursive ordinary/delayed PE dependencies, export-forwarder targets and explicit runtime-loaded extras. Imports mode fails on missing private DLLs and conflicting versions. It never copies System32 DLLs. Every staged DLL has a provenance/hash/dependency manifest outside the app package.
+- Three Swift runtime staging modes: `full` retains the previous broad bundle for comparison; `runtime` keeps the complete application runtime and VC redistributables from pinned roots; `imports` narrows that set to recursive ordinary/delayed PE dependencies, export-forwarder targets and explicit runtime-loaded extras. Both optimized modes validate dependencies and reject conflicting versions. They never copy System32 DLLs. Every staged DLL has a provenance/hash/dependency manifest outside the app package.
 - Fresh staging before replacing generated runtime files, with checks against accidentally bundling stale Linux libraries or unknown files.
 - Offline lyric protocol checks under a sanitized PATH, covering Unicode, enhanced LRC, YAML, plain text and errors, in addition to the demo.
 - Windows-scoped native compiler profiles: `baseline`; `balanced` (thin LTO, one codegen unit, debug information stripping, speed optimization); `size` (full LTO and size optimization). No panic-mode changes or shared Linux release-profile changes.
 - Optional process-tree sampling of visible demo, hidden tray and wallpaper scenarios during installed native acceptance. Includes live WebView2/Swift children; reports memory and normalized CPU with limitations stated in each report.
 - CI controls for comparing modes/profiles, Python packaging regressions, PowerShell syntax checks and a package-size job summary.
 
-Defaults remain `full` / `baseline` until candidate evidence justifies promotion. No rendering quality, assets, features, update feeds, keys or app identifiers are changed. This is the packaging and measurement stage of `OPTIMIZATION_PLAN.md`; scheduler changes and a Rust lyric-engine replacement are not implemented here.
+Defaults remain `full` / `baseline` until candidate evidence justifies promotion. The preferred candidate is `runtime` / `balanced`: it removes compiler tools while retaining the complete application DLL distribution, including libraries loaded dynamically. `imports` remains experimental. No rendering quality, assets, features, update feeds, keys or app identifiers are changed. This is the packaging and measurement stage of `OPTIMIZATION_PLAN.md`; scheduler changes and a Rust lyric-engine replacement are not implemented here.
 
 ## Build and compare on Windows
 
@@ -29,7 +29,7 @@ Install the resulting NSIS setup into a dedicated directory and record it:
 python windows/scripts/measure-package.py --installer PATH_TO_SETUP.exe --installed PATH_TO_INSTALLED_APP --frontend linux/dist --output windows/test-results/size/baseline.json
 ```
 
-Retain that installer and report outside the next build's output directory. Build the candidate using `-RuntimeMode imports` and `-NativeProfile balanced`, install into a fresh directory, then:
+Retain that installer and report outside the next build's output directory. Build the candidate using `-RuntimeMode runtime` and `-NativeProfile balanced`, install into a fresh directory, then:
 
 ```powershell
 python windows/scripts/measure-package.py --installer PATH_TO_CANDIDATE_SETUP.exe --installed PATH_TO_CANDIDATE_APP --frontend linux/dist --baseline windows/test-results/size/baseline.json --output windows/test-results/size/candidate.json
@@ -40,7 +40,7 @@ All paths above beginning `PATH_TO_` are placeholders. To enforce approved budge
 
 For CI, dispatch **Windows preview** on this branch with the desired `runtime_mode`, `native_profile` and `measure_performance` inputs. Reports live under `size/` and native evidence under `native/` in the `afterglow-windows-x86_64-preview` artifact. The separate **Windows installed preview** workflow can install that run on a runner without the Swift toolchain; enable `audit_runtime` to recheck its private DLL graph and package-tool tests there. It does not publish unless explicitly requested through its release inputs.
 
-Full-mode roots come from Swift build/toolchain/runtime and VC redistributable discovery. Imports mode uses the active compiler version's application runtime under `Swift/Runtimes/<version>/usr/bin`, the helper build directory and the VC redistributable directory. Swift's compiler and application distributions can contain different DLLs with the same name (observed for BlocksRuntime in Windows CI), so mixing them is unsafe. Imports mode requires the matching application runtime and still rejects conflicting copies. Full mode records conflicts while retaining the original root precedence for baseline comparison.
+Full-mode roots come from Swift build/toolchain/runtime and VC redistributable discovery. Both optimized modes use the active compiler version's application runtime under `Swift/Runtimes/<version>/usr/bin`, the helper build directory and the VC redistributable directory. Swift's compiler and application distributions can contain different DLLs with the same name (observed for BlocksRuntime in Windows CI), so mixing them is unsafe. Both optimized modes require the matching application runtime and still reject conflicting copies. Full mode records conflicts while retaining the original root precedence for baseline comparison.
 
 ## Performance measurements
 
@@ -61,5 +61,7 @@ Before release: compare component bytes, test clean install and upgrade/settings
 ## Reference baseline
 
 GitHub release metadata for `windows-v0.2.1` reports **146,601,820 bytes** for `Afterglow_0.2.1_x64-setup.exe` (about 146.6 MB / 139.8 MiB), inspected 12 November 2026. This is download size only, not installed footprint. The actual download baseline is larger than the initial ~110 MB estimate.
+
+The instrumented full-bundle [baseline manifest](https://github.com/medhansh-19/Afterglow/actions/runs/43193551691) contains **118 DLLs / 522,756,512 bytes**. Three development tools alone account for **386,968,576 bytes**: `liblldb.dll` (166,076,928), `_InternalSwiftScan.dll` (155,166,208), and `LTO.dll` (65,725,440). That run's installer step failed due to an empty Cargo environment override; its completed DLL staging manifest is valid size evidence, not a successful installer test. The override has been fixed and covered by Windows tests.
 
 Primary build references: [Tauri size guidance](https://v2.tauri.app/concept/size/), [Windows installer](https://v2.tauri.app/distribute/windows-installer/), [Microsoft PE format](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format).
