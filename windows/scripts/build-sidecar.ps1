@@ -48,6 +48,7 @@ try {
     }
     # Redistributable VC DLLs belong to the private Swift helper runtime, never
     # copied from System32. The native Rust executable links its CRT statically.
+    $vcRuntimeRoot = $null
     $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
     if (Test-Path $vswhere) {
         $vs = & $vswhere -latest -products '*' -property installationPath
@@ -55,11 +56,28 @@ try {
             $redist = Join-Path $vs 'VC/Redist/MSVC'
             if (Test-Path $redist) {
                 $latest = Get-ChildItem $redist -Directory | Sort-Object Name -Descending | Select-Object -First 1
-                if ($latest) { $roots += Join-Path $latest.FullName 'x64/Microsoft.VC143.CRT' }
+                if ($latest) {
+                    $vcRuntimeRoot = Join-Path $latest.FullName 'x64/Microsoft.VC143.CRT'
+                    $roots += $vcRuntimeRoot
+                }
             }
         }
     }
-    $roots = @($roots | Where-Object { $_ -and (Test-Path $_ -PathType Container) } | Select-Object -Unique)
+    if ($RuntimeMode -eq 'imports') {
+        # Swift 6.2.1 installs distinct compiler and application runtimes. Their
+        # identically named BlocksRuntime DLLs are not byte-identical. Pin to the
+        # active toolchain's sibling runtime instead of mixing both distributions.
+        $version = [regex]::Match($info.compilerVersion, 'Swift version (\d+\.\d+(?:\.\d+)?)').Groups[1].Value
+        if (-not $version) { throw 'Cannot determine the active Swift runtime version.' }
+        $swiftHome = [IO.Path]::GetFullPath((Join-Path (Split-Path $swift -Parent) '../../../..'))
+        $activeRuntime = Join-Path $swiftHome "Runtimes/$version/usr/bin"
+        if (-not (Test-Path (Join-Path $activeRuntime 'swiftCore.dll'))) {
+            throw "The active Swift $version application runtime was not found at $activeRuntime. Do not fall back to compiler DLLs."
+        }
+        $roots = @($bin, $activeRuntime, $vcRuntimeRoot)
+    }
+    $roots = @($roots | Where-Object { $_ -and (Test-Path $_ -PathType Container) } |
+        ForEach-Object { (Resolve-Path $_).Path } | Select-Object -Unique)
     # Resolve into a fresh directory first, so missing/ambiguous imports cannot
     # leave a partially trimmed runtime. Full mode remains the shipping baseline
     # until imports mode passes provider and clean-machine acceptance.
