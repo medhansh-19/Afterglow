@@ -1,5 +1,5 @@
 name: Windows preview
-run-name: Windows ${{ inputs.runtime_mode || 'full' }} runtime / ${{ inputs.native_profile || 'baseline' }} build
+run-name: Windows ${{ inputs.runtime_mode || 'runtime' }} bundle / ${{ inputs.native_profile || 'balanced' }} build
 on:
   pull_request:
     paths: ['windows/**', 'linux/**', '.cargo/**', 'Sources/AfterglowCore/**', 'Sources/AfterglowLyricsService/**', 'Tests/**', 'Package.*', 'THIRD_PARTY_NOTICES.md', '.github/workflows/windows.yml']
@@ -11,12 +11,12 @@ on:
         description: Swift DLL bundle (full baseline, complete app runtime, or experimental imports)
         type: choice
         options: [full, runtime, imports]
-        default: full
+        default: runtime
       native_profile:
         description: Native compiler profile to compare with baseline
         type: choice
         options: [baseline, balanced, size]
-        default: baseline
+        default: balanced
       measure_performance:
         description: Record short demo/tray/wallpaper process-tree samples (not battery benchmarks)
         type: boolean
@@ -24,8 +24,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: windows-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.runtime_mode || 'full' }}-${{ inputs.native_profile || 'baseline' }}
-  cancel-in-progress: true
+  group: windows-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.runtime_mode || 'runtime' }}-${{ inputs.native_profile || 'balanced' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 jobs:
   frontend-regressions:
     runs-on: ubuntu-latest
@@ -104,7 +104,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Use the selected compiler profile for tests and packaging
         env:
-          NATIVE_PROFILE: ${{ inputs.native_profile || 'baseline' }}
+          NATIVE_PROFILE: ${{ inputs.native_profile || 'balanced' }}
         run: |
           $settings = & ./windows/scripts/native-profile.ps1 -NativeProfile $env:NATIVE_PROFILE
           foreach ($key in $settings.Keys) {
@@ -112,7 +112,7 @@ jobs:
           }
       - uses: Swatinem/rust-cache@v2
         with:
-          key: windows-${{ inputs.native_profile || 'baseline' }}
+          key: windows-${{ inputs.native_profile || 'balanced' }}
           workspaces: linux/src-tauri -> target
           cache-on-failure: true
       - uses: actions/cache/restore@v4
@@ -127,7 +127,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and stage the Windows lyric service
         env:
-          RUNTIME_MODE: ${{ inputs.runtime_mode || 'full' }}
+          RUNTIME_MODE: ${{ inputs.runtime_mode || 'runtime' }}
         run: |
           ./windows/scripts/build-sidecar.ps1 -RuntimeMode $env:RUNTIME_MODE
       - name: Shared lyric service protocol checks
@@ -166,7 +166,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-          NATIVE_PROFILE: ${{ inputs.native_profile || 'baseline' }}
+          NATIVE_PROFILE: ${{ inputs.native_profile || 'balanced' }}
         run: |
           ./windows/scripts/build-installer.ps1 -NativeProfile $env:NATIVE_PROFILE
       - name: Install the preview and test the native application

@@ -10,7 +10,7 @@
 - Optional process-tree sampling of visible demo, hidden tray and wallpaper scenarios during installed native acceptance. Includes live WebView2/Swift children; reports memory and normalized CPU with limitations stated in each report.
 - CI controls for comparing modes/profiles, Python packaging regressions, PowerShell syntax checks and a package-size job summary.
 
-Defaults remain `full` / `baseline` until candidate evidence justifies promotion. The preferred candidate is `runtime` / `balanced`: it removes compiler tools while retaining the complete application DLL distribution, including libraries loaded dynamically. `imports` remains experimental. No rendering quality, assets, features, update feeds, keys or app identifiers are changed. This is the packaging and measurement stage of `OPTIMIZATION_PLAN.md`; scheduler changes and a Rust lyric-engine replacement are not implemented here.
+The selected defaults are `runtime` / `balanced`: it removes compiler tools while retaining the complete application DLL distribution, including libraries loaded dynamically. `imports` remains experimental. No rendering quality, assets, features, update feeds, keys or app identifiers are changed. This is the packaging and measurement stage of `OPTIMIZATION_PLAN.md`; scheduler changes and a Rust lyric-engine replacement are not implemented here.
 
 ## Build and compare on Windows
 

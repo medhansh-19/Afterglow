@@ -1,6 +1,6 @@
 param(
     [string]$TargetTriple = 'x86_64-pc-windows-msvc',
-    [ValidateSet('full','runtime','imports')][string]$RuntimeMode = 'full'
+    [ValidateSet('full','runtime','imports')][string]$RuntimeMode = 'runtime'
 )
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows lyric service on Windows.' }
@@ -79,8 +79,8 @@ try {
     $roots = @($roots | Where-Object { $_ -and (Test-Path $_ -PathType Container) } |
         ForEach-Object { (Resolve-Path $_).Path } | Select-Object -Unique)
     # Resolve into a fresh directory first, so missing/ambiguous imports cannot
-    # leave a partially trimmed runtime. Full mode remains the shipping baseline
-    # until imports mode passes provider and clean-machine acceptance.
+    # leave a partially trimmed runtime. Full mode is the comparison baseline;
+    # runtime mode keeps the complete application distribution.
     $python = (Get-Command python).Source
     $staging = Join-Path ([IO.Path]::GetTempPath()) ('afterglow-runtime-' + [guid]::NewGuid())
     New-Item -ItemType Directory $staging | Out-Null

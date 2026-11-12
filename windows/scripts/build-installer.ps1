@@ -1,4 +1,4 @@
-param([ValidateSet('baseline','balanced','size')][string]$NativeProfile = 'baseline')
+param([ValidateSet('baseline','balanced','size')][string]$NativeProfile = 'balanced')
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows installer on Windows.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path

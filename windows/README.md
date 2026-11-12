@@ -53,7 +53,7 @@ npm run tauri -- dev --config ../windows/tauri.windows.conf.json
 
 Browser preview and macOS checks exercise portable logic only. Windows CI compiles the native adapters, runs Windows tests and packages the app. Real Spotify/Apple Music, capture isolation, Explorer recovery, sleep/wake and hardware power behavior remain separate acceptance tests. See [PLAN.md](PLAN.md) for architecture and official API sources.
 
-Package optimization and measurement commands are documented in [OPTIMIZATION.md](OPTIMIZATION.md). The default build retains the full Swift runtime until the smaller dependency-based bundle completes acceptance testing.
+Package optimization and measurement commands are documented in [OPTIMIZATION.md](OPTIMIZATION.md). The default build keeps the complete Swift application runtime while excluding compiler/debugger tools. The experimental imports-only mode remains available for further measurement.
 
 The listening footer follows the Mac layout: centered title and artist above progress/time, with transport controls in Controls → Player. Beat sync has a real switch in Appearance and Beat sync settings; known player audio is selected only when unambiguous. Waiting, silence and missing audio are labelled separately from a live signal.
 
