@@ -16,7 +16,18 @@ import pefile
 
 X64 = 0x8664
 COMPILER_DLL = re.compile(r"^(libclang|libLTO|LLVM|sourcekit|IndexStore|swiftScan|swiftSyntax)", re.I)
-PRIVATE_DLL = re.compile(r"^(swift|foundation|icu|libdispatch|dispatch|blocks|libblocks|vcruntime|msvcp|concrt)", re.I)
+# Explicit Windows 11 platform DLLs, not "anything found in System32". A
+# developer-installed vendor library in System32 must not mask a missing private
+# dependency. API-set contracts are handled separately by the Windows loader.
+SYSTEM_DLLS = frozenset(name + ".dll" for name in """
+advapi32 authz bcrypt bcryptprimitives cabinet cfgmgr32 comctl32 comdlg32
+crypt32 cryptbase cryptsp cryptui dbghelp dhcpcsvc dhcpcsvc6 dnsapi dwmapi
+gdi32 gdi32full imagehlp imm32 iphlpapi kernel32 kernelbase msasn1 msvcrt
+mswsock ncrypt netapi32 netutils normaliz ntdll ntmarta ole32 oleaut32
+powrprof profapi propsys psapi rasapi32 rasman rpcrt4 rtutils secur32 sensapi
+setupapi shell32 shlwapi srvcli sspicli ucrtbase user32 userenv usp10 uxtheme
+version winhttp wininet winmm winspool wintrust wldap32 ws2_32 wtsapi32
+""".split())
 
 
 def digest(path):
@@ -88,7 +99,7 @@ def select_runtime(binary, candidates, system, extra, mode, reader=inspect_pe):
             continue
         choices = candidates.get(name, [])
         if not choices:
-            if name in system_names and not PRIVATE_DLL.match(name):
+            if name in system_names and name in SYSTEM_DLLS:
                 system_imports.add(name)
                 continue
             raise ValueError(f"Unresolved private DLL {name}, required by {parent}")

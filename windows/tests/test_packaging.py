@@ -106,6 +106,12 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unresolved private DLL"):
             self.stage()
 
+    def test_arbitrary_vendor_dll_in_system32_is_not_an_os_dependency(self):
+        self.dll("swiftCore.dll", ["vendor.dll"])
+        (self.system / "vendor.dll").write_bytes(b"developer-installed")
+        with self.assertRaisesRegex(ValueError, "Unresolved private DLL"):
+            self.stage()
+
     def test_dynamic_extra_is_traversed_and_reason_recorded(self):
         self.dll("swiftCore.dll")
         self.dll("extra.dll", ["nested.dll"])

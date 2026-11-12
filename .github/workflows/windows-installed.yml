@@ -12,6 +12,10 @@ on:
         description: Include native desktop host acceptance
         type: boolean
         default: false
+      audit_runtime:
+        description: Recheck the installed private DLL graph with no Swift toolchain present
+        type: boolean
+        default: false
       desktop_layout:
         description: Native fixture layout when Explorer is unavailable
         type: choice
@@ -42,6 +46,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
           name: afterglow-windows-x86_64-preview
@@ -58,6 +65,22 @@ jobs:
           if ($setup.ExitCode -ne 0) { throw 'Installer failed' }
           $desktop = '${{ inputs.check_desktop }}' -eq 'true'
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/native -CheckDesktop:$desktop -DesktopLayout '${{ inputs.desktop_layout || 'modern' }}'
+          python windows/scripts/measure-package.py --installer $installer.FullName --installed $install --output windows/test-results/size/package.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Audit installed runtime without developer tools
+        if: inputs.audit_runtime
+        shell: pwsh
+        run: |
+          if (Get-Command swift -ErrorAction SilentlyContinue) { throw 'This audit requires a runner without the Swift toolchain.' }
+          python -m pip install -r windows/scripts/requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s windows/tests -p test_packaging.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
+          $roots = Join-Path $env:RUNNER_TEMP 'installed-runtime-roots.json'
+          ConvertTo-Json -InputObject @((Join-Path $install 'runtime')) | Set-Content $roots -Encoding utf8
+          python windows/scripts/stage-runtime.py --binary (Join-Path $install 'afterglow-lyrics.exe') --roots $roots --system (Join-Path $env:SystemRoot 'System32') --destination (Join-Path $env:RUNNER_TEMP 'audited-runtime') --report windows/test-results/size/installed-runtime-manifest.json --extras windows/runtime-extra-dlls.json --mode imports
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
