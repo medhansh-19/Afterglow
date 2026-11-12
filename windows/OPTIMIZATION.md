@@ -3,7 +3,7 @@
 ## Implemented
 
 - File-level installer and installed-app size reports, SHA256 hashes, component totals, baseline deltas and optional byte budgets.
-- Two Swift runtime staging modes: `full` retains the previous bundle; `imports` selects recursive ordinary/delayed PE dependencies and explicit runtime-loaded extras. Imports mode fails on missing private DLLs and conflicting versions. It never copies System32 DLLs. Every staged DLL has a provenance/hash/dependency manifest outside the app package.
+- Two Swift runtime staging modes: `full` retains the previous bundle; `imports` selects recursive ordinary/delayed PE dependencies, export-forwarder targets and explicit runtime-loaded extras. Imports mode fails on missing private DLLs and conflicting versions. It never copies System32 DLLs. Every staged DLL has a provenance/hash/dependency manifest outside the app package.
 - Fresh staging before replacing generated runtime files, with checks against accidentally bundling stale Linux libraries or unknown files.
 - Offline lyric protocol checks under a sanitized PATH, covering Unicode, enhanced LRC, YAML, plain text and errors, in addition to the demo.
 - Windows-scoped native compiler profiles: `baseline`; `balanced` (thin LTO, one codegen unit, debug information stripping, speed optimization); `size` (full LTO and size optimization). No panic-mode changes or shared Linux release-profile changes.
@@ -38,9 +38,9 @@ python windows/scripts/measure-package.py --installer PATH_TO_CANDIDATE_SETUP.ex
 
 All paths above beginning `PATH_TO_` are placeholders. To enforce approved budgets, pass `--max-installer-bytes` and/or `--max-installed-bytes`. The JSON report is still written on a budget failure. Do not assign budgets until actual release measurements exist.
 
-For CI, dispatch **Windows preview** on this branch with the desired `runtime_mode`, `native_profile` and `measure_performance` inputs. Reports live under `size/` and native evidence under `native/` in the `afterglow-windows-x86_64-preview` artifact. The separate **Windows installed preview** workflow can install that run on a runner without the Swift toolchain; it does not publish unless explicitly requested through its release inputs.
+For CI, dispatch **Windows preview** on this branch with the desired `runtime_mode`, `native_profile` and `measure_performance` inputs. Reports live under `size/` and native evidence under `native/` in the `afterglow-windows-x86_64-preview` artifact. The separate **Windows installed preview** workflow can install that run on a runner without the Swift toolchain; enable `audit_runtime` to recheck its private DLL graph and package-tool tests there. It does not publish unless explicitly requested through its release inputs.
 
-Runtime roots come from the active Swift build/toolchain/runtime and VC redistributable discovery. If imports mode reports different hashes for the same DLL, pin the discovered roots to one compatible runtime installation rather than accepting an arbitrary first copy. Full mode records conflicts while retaining the original root precedence for baseline comparison.
+Full-mode roots come from Swift build/toolchain/runtime and VC redistributable discovery. Imports mode uses the active compiler version's application runtime under `Swift/Runtimes/<version>/usr/bin`, the helper build directory and the VC redistributable directory. Swift's compiler and application distributions can contain different DLLs with the same name (observed for BlocksRuntime in Windows CI), so mixing them is unsafe. Imports mode requires the matching application runtime and still rejects conflicting copies. Full mode records conflicts while retaining the original root precedence for baseline comparison.
 
 ## Performance measurements
 

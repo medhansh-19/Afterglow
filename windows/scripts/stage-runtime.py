@@ -40,11 +40,25 @@ def inspect_pe(path):
         pe.parse_data_directories(directories=[
             pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
             pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"],
+            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_EXPORT"],
         ])
         imports = set()
         for table in ("DIRECTORY_ENTRY_IMPORT", "DIRECTORY_ENTRY_DELAY_IMPORT"):
             for entry in getattr(pe, table, []):
                 name = entry.dll.decode("ascii").lower()
+                validate_name(name)
+                imports.add(name)
+        # A private DLL can forward exports to another DLL without listing that
+        # DLL in its import table. Conservatively include every such target.
+        exports = getattr(pe, "DIRECTORY_ENTRY_EXPORT", None)
+        for symbol in exports.symbols if exports else []:
+            if symbol.forwarder:
+                module, separator, _ = symbol.forwarder.decode("ascii").rpartition(".")
+                if not separator:
+                    raise ValueError(f"Malformed export forwarder in {path}")
+                name = module.lower()
+                if not name.endswith(".dll"):
+                    name += ".dll"
                 validate_name(name)
                 imports.add(name)
         return pe.FILE_HEADER.Machine, sorted(imports)

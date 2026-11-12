@@ -21,7 +21,7 @@ runtime = load("stage-runtime")
 package = load("measure-package")
 
 
-def pe_fixture(path, machine=0x8664):
+def pe_fixture(path, machine=0x8664, forwarder=None):
     """Small PE32+ with one ordinary import and one delayed import."""
     data = bytearray(4096)
     data[:2] = b"MZ"
@@ -46,6 +46,12 @@ def pe_fixture(path, machine=0x8664):
     struct.pack_into("<IIIIIIII", data, 0x500, 1, 0x1400, 0, 0x1500, 0x1500, 0, 0, 0)
     data[0x600:0x60d] = b"delayed.dll\0\0"
     struct.pack_into("<Q", data, 0x700, 0x8000000000000001)
+    if forwarder:
+        struct.pack_into("<II", data, optional + 112, 0x1600, 0x100)
+        struct.pack_into("<IIHHIIIIIII", data, 0x800, 0, 0, 0, 0, 0, 1, 1, 0, 0x1640, 0, 0)
+        struct.pack_into("<I", data, 0x840, 0x1680)
+        encoded = forwarder.encode("ascii") + b"\0"
+        data[0x880:0x880 + len(encoded)] = encoded
     path.write_bytes(data)
 
 
@@ -82,6 +88,12 @@ class PackagingTests(unittest.TestCase):
         machine, imports = runtime.inspect_pe(fixture)
         self.assertEqual(machine, runtime.X64)
         self.assertEqual(imports, ["delayed.dll", "swiftcore.dll"])
+
+    def test_export_forwarder_adds_dependency_without_an_import_entry(self):
+        fixture = self.root / "forwarder.dll"
+        pe_fixture(fixture, forwarder="forwarded.Function")
+        _, imports = runtime.inspect_pe(fixture)
+        self.assertIn("forwarded.dll", imports)
 
     def test_recursive_cycle_system_and_unused_dlls(self):
         self.dll("swiftCore.dll", ["nested.dll", "KERNEL32.dll", "api-ms-win-core-test.dll"])
