@@ -77,7 +77,7 @@ try {
         # runtime/ is generated build output. Do not package stale Linux .so
         # files alongside Windows DLLs when reusing a cross-platform checkout.
         $unexpected = @(Get-ChildItem $runtime -Force | Where-Object {
-            $_.Name -ne 'README.txt' -and $_.Name -notmatch '(?i)(\.dll$|\.so(\..*)?$)'
+            $_.PSIsContainer -or ($_.Name -ne 'README.txt' -and $_.Name -notmatch '(?i)(\.dll$|\.so(\..*)?$)')
         })
         if ($unexpected.Count) { throw 'Unexpected files in runtime/; refusing to package or delete them.' }
         Get-ChildItem $runtime -File | Where-Object { $_.Name -ne 'README.txt' } | Remove-Item
@@ -115,7 +115,7 @@ try {
         # Exercise Unicode, YAML, enhanced LRC and invalid inputs too. Resolve
         # Python before stripping PATH; these are still local/offline checks.
         $env:AFTERGLOW_LYRICS_BINARY = $destination
-        & $python linux/tests/service.py
+        & $python -X utf8 linux/tests/service.py
         if ($LASTEXITCODE -ne 0) { throw 'Staged helper protocol checks failed without developer PATH.' }
     } finally {
         $env:Path = $originalPath
