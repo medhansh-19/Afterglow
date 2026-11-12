@@ -95,6 +95,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
           name: afterglow-windows-x86_64-preview
@@ -131,6 +134,18 @@ jobs:
           if (-not $installer) { throw 'New installer missing.' }
           $setup = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw 'Upgrade installation failed.' }
+          $budget = @()
+          $runtimeManifest = 'windows/download/size/runtime-manifest.json'
+          if (Test-Path $runtimeManifest) {
+            $runtimeReport = Get-Content $runtimeManifest -Raw | ConvertFrom-Json
+            $expectedDlls = @($runtimeReport.files | ForEach-Object name | Sort-Object)
+            $actualDlls = @(Get-ChildItem (Join-Path $install 'runtime') -Filter '*.dll' -File | ForEach-Object Name | Sort-Object)
+            $difference = @(Compare-Object $expectedDlls $actualDlls)
+            if ($difference.Count) { throw ('Upgrade left missing or stale runtime DLLs: ' + ($difference | Out-String)) }
+            if ($runtimeReport.mode -eq 'runtime') { $budget = @('--budget','windows/size-budget.json') }
+          }
+          python windows/scripts/measure-package.py --installer $installer.FullName --installed $install --output windows/test-results/upgrade-size.json @budget
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((Get-FileHash $libraryPath -Algorithm SHA256).Hash -ne $before) { throw 'Installer modified the existing library.' }
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory windows/test-results/after
           $library = Get-Content $libraryPath -Raw | ConvertFrom-Json
