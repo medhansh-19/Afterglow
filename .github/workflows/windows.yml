@@ -5,6 +5,17 @@ on:
   push:
     branches: ['main', 'codex/windows-app', 'codex/in-app-updates']
   workflow_dispatch:
+    inputs:
+      runtime_mode:
+        description: Swift DLL bundle (imports is an unvalidated optimization candidate)
+        type: choice
+        options: [full, imports]
+        default: full
+      native_profile:
+        description: Native compiler profile to compare with baseline
+        type: choice
+        options: [baseline, balanced, size]
+        default: baseline
 permissions:
   contents: read
 concurrency:
@@ -24,6 +35,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Check packaging tools
+        run: |
+          python -m pip install -r windows/scripts/requirements-build.txt
+          python -m unittest discover -s windows/tests -p 'test_packaging.py' -v
       - run: npm ci --prefix linux
       - run: pip install playwright
       - run: python -m playwright install --with-deps chromium
@@ -62,6 +77,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install packaging analysis tooling
+        run: |
+          python -m pip install -r windows/scripts/requirements-build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s windows/tests -p 'test_packaging.py' -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Swift 6.2.1 for Windows
         uses: compnerd/gha-setup-swift@57fe462cd3c7b05ae8fcff79b00719312e305257
         with:
@@ -83,10 +104,10 @@ jobs:
           swift run CoreChecks
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and stage the Windows lyric service
+        env:
+          RUNTIME_MODE: ${{ inputs.runtime_mode || 'full' }}
         run: |
-          swift build -c release --product afterglow-lyrics
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./windows/scripts/build-sidecar.ps1
+          ./windows/scripts/build-sidecar.ps1 -RuntimeMode $env:RUNTIME_MODE
       - name: Shared lyric service protocol checks
         env:
           AFTERGLOW_LYRICS_BINARY: linux/src-tauri/binaries/afterglow-lyrics-x86_64-pc-windows-msvc.exe
@@ -123,10 +144,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-        working-directory: linux
+          NATIVE_PROFILE: ${{ inputs.native_profile || 'baseline' }}
         run: |
-          npm run tauri -- build --config ../windows/tauri.windows.conf.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./windows/scripts/build-installer.ps1 -NativeProfile $env:NATIVE_PROFILE
       - name: Install the preview and test the native application
         run: |
           $installer = Get-ChildItem 'linux/src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
@@ -134,7 +154,18 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
+          python windows/scripts/measure-package.py --installer $installer.FullName --installed $install --frontend linux/dist --output windows/test-results/size/package.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop
+      - name: Publish size summary
+        if: always()
+        run: |
+          if (Test-Path windows/test-results/size/package.json) {
+            $report = Get-Content windows/test-results/size/package.json -Raw | ConvertFrom-Json
+            "### Windows package bytes" >> $env:GITHUB_STEP_SUMMARY
+            "Installer: $($report.installer.bytes); installed: $($report.installedBytes)" >> $env:GITHUB_STEP_SUMMARY
+            $report.components.PSObject.Properties | ForEach-Object { "- $($_.Name): $($_.Value)" >> $env:GITHUB_STEP_SUMMARY }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

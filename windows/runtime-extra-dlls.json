@@ -1,0 +1,4 @@
+{
+  "description": "Additional runtime-loaded DLLs, beyond PE imports. Imports mode is experimental until provider/module-load and clean-machine acceptance is complete. Add names only with a documented reason.",
+  "libraries": {}
+}

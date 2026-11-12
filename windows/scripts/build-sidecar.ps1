@@ -1,4 +1,7 @@
-param([string]$TargetTriple = 'x86_64-pc-windows-msvc')
+param(
+    [string]$TargetTriple = 'x86_64-pc-windows-msvc',
+    [ValidateSet('full','imports')][string]$RuntimeMode = 'full'
+)
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows lyric service on Windows.' }
 if ($TargetTriple -ne 'x86_64-pc-windows-msvc') { throw 'This preview packages Windows x64 only.' }
@@ -26,8 +29,6 @@ try {
     $binaries = Join-Path $repo 'linux/src-tauri/binaries'
     $runtime = Join-Path $repo 'linux/src-tauri/runtime'
     New-Item -ItemType Directory -Force $binaries,$runtime | Out-Null
-    # Remove old Windows runtime files, preserving Linux resources and README.
-    Get-ChildItem $runtime -Filter '*.dll' -File | Remove-Item
     $destination = Join-Path $binaries "afterglow-lyrics-$TargetTriple.exe"
     Copy-Item $binary $destination -Force
 
@@ -59,24 +60,35 @@ try {
         }
     }
     $roots = @($roots | Where-Object { $_ -and (Test-Path $_ -PathType Container) } | Select-Object -Unique)
-    # Collect the installed Swift runtime DLL set (including Foundation, ICU,
-    # dispatch and Blocks). Do not copy compiler executables or Windows system DLLs.
-    foreach ($root in $roots) {
-        Get-ChildItem $root -Filter '*.dll' -File | Where-Object {
-            $_.Name -notmatch '^(?i:libclang|libLTO|LLVM|sourcekit|IndexStore|swiftScan|swiftSyntax)'
-        } | ForEach-Object {
-            $target = Join-Path $runtime $_.Name
-            if ((Get-PeMachine $_.FullName) -eq 0x8664 -and -not (Test-Path $target)) {
-                Copy-Item $_.FullName $target
-            }
-        }
-    }
-    if (-not (Test-Path (Join-Path $runtime 'swiftCore.dll'))) { throw 'Swift runtime DLLs were not found; refusing an incomplete package.' }
+    # Resolve into a fresh directory first, so missing/ambiguous imports cannot
+    # leave a partially trimmed runtime. Full mode remains the shipping baseline
+    # until imports mode passes provider and clean-machine acceptance.
+    $python = (Get-Command python).Source
+    $staging = Join-Path ([IO.Path]::GetTempPath()) ('afterglow-runtime-' + [guid]::NewGuid())
+    New-Item -ItemType Directory $staging | Out-Null
+    try {
+        $rootsFile = Join-Path $staging 'roots.json'
+        ConvertTo-Json -InputObject @($roots) | Set-Content $rootsFile -Encoding utf8
+        $report = Join-Path $repo 'windows/test-results/size/runtime-manifest.json'
+        & $python windows/scripts/stage-runtime.py --binary $binary --roots $rootsFile `
+            --system (Join-Path $env:SystemRoot 'System32') --destination (Join-Path $staging 'dlls') `
+            --report $report --extras windows/runtime-extra-dlls.json --mode $RuntimeMode
+        if ($LASTEXITCODE -ne 0) { throw 'Runtime dependency staging failed.' }
+        # runtime/ is generated build output. Do not package stale Linux .so
+        # files alongside Windows DLLs when reusing a cross-platform checkout.
+        $unexpected = @(Get-ChildItem $runtime -Force | Where-Object {
+            $_.Name -ne 'README.txt' -and $_.Name -notmatch '(?i)(\.dll$|\.so(\..*)?$)'
+        })
+        if ($unexpected.Count) { throw 'Unexpected files in runtime/; refusing to package or delete them.' }
+        Get-ChildItem $runtime -File | Where-Object { $_.Name -ne 'README.txt' } | Remove-Item
+        Copy-Item (Join-Path $staging 'dlls/*.dll') $runtime
+    } finally { Remove-Item $staging -Recurse -Force }
 
     # Reproduce the packaged loader environment. A globally installed Swift must
     # not mask a missing private runtime DLL. The helper remains a console process
     # whose JSON pipes are owned by the native application.
     $originalPath = $env:Path
+    $originalBinary = $env:AFTERGLOW_LYRICS_BINARY
     try {
         $system = Join-Path $env:SystemRoot 'System32'
         $env:Path = "$runtime;$system;$env:SystemRoot"
@@ -100,6 +112,14 @@ try {
         if ($child.ExitCode -ne 0) { throw "Staged helper failed without developer PATH (exit $($child.ExitCode)): $($errors.Result)" }
         $reply = $output.Result | ConvertFrom-Json
         if (-not $reply.document.lines.Count) { throw 'Staged helper returned no timed demo lyrics.' }
-    } finally { $env:Path = $originalPath }
+        # Exercise Unicode, YAML, enhanced LRC and invalid inputs too. Resolve
+        # Python before stripping PATH; these are still local/offline checks.
+        $env:AFTERGLOW_LYRICS_BINARY = $destination
+        & $python linux/tests/service.py
+        if ($LASTEXITCODE -ne 0) { throw 'Staged helper protocol checks failed without developer PATH.' }
+    } finally {
+        $env:Path = $originalPath
+        $env:AFTERGLOW_LYRICS_BINARY = $originalBinary
+    }
     Write-Host "Staged $destination with $((Get-ChildItem $runtime -Filter '*.dll').Count) private runtime DLLs."
 } finally { Pop-Location }

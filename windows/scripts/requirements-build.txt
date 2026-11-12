@@ -1,0 +1,2 @@
+# Build/test tooling only; never shipped with Afterglow.
+pefile==2024.8.26
