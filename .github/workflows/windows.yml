@@ -172,13 +172,17 @@ jobs:
       - name: Install the preview and test the native application
         env:
           MEASURE_PERFORMANCE: ${{ inputs.measure_performance || 'false' }}
+          RUNTIME_MODE: ${{ inputs.runtime_mode || 'runtime' }}
+          NATIVE_PROFILE: ${{ inputs.native_profile || 'balanced' }}
         run: |
           $installer = Get-ChildItem 'linux/src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'No Windows setup executable was produced.' }
           $install = Join-Path $env:RUNNER_TEMP 'afterglow-installed'
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)." }
-          python windows/scripts/measure-package.py --installer $installer.FullName --installed $install --frontend linux/dist --output windows/test-results/size/package.json
+          $budget = @()
+          if ($env:RUNTIME_MODE -eq 'runtime' -and $env:NATIVE_PROFILE -eq 'balanced') { $budget = @('--budget','windows/size-budget.json') }
+          python windows/scripts/measure-package.py --installer $installer.FullName --installed $install --frontend linux/dist --output windows/test-results/size/package.json @budget
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $measure = $env:MEASURE_PERFORMANCE -eq 'true'
           ./windows/tests/native-smoke.ps1 -AppPath (Join-Path $install 'afterglow-windows.exe') -OutputDirectory 'windows/test-results/native' -CheckDesktop -MeasurePerformance:$measure

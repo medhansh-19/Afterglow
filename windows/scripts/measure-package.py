@@ -62,6 +62,16 @@ def compare(current, baseline):
     }
 
 
+def load_budget(path):
+    budget = json.loads(path.read_text(encoding="utf-8-sig"))
+    if budget.get("schemaVersion") != 1:
+        raise ValueError("Unsupported size budget schema.")
+    values = [budget.get("maxInstallerBytes"), budget.get("maxInstalledBytes")]
+    if any(type(value) is not int or value <= 0 for value in values):
+        raise ValueError("Size budgets must be positive integer byte counts.")
+    return values
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--installer", type=Path, required=True)
@@ -69,9 +79,14 @@ def main():
     parser.add_argument("--frontend", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--budget", type=Path, help="JSON size budget for the default Windows build")
     parser.add_argument("--max-installer-bytes", type=int)
     parser.add_argument("--max-installed-bytes", type=int)
     args = parser.parse_args()
+    if args.budget:
+        if args.max_installer_bytes is not None or args.max_installed_bytes is not None:
+            parser.error("Use --budget or explicit byte limits, not both.")
+        args.max_installer_bytes, args.max_installed_bytes = load_budget(args.budget)
     result = measure(args.installer, args.installed, args.frontend)
     if args.baseline:
         result["deltaFromBaseline"] = compare(result, json.loads(args.baseline.read_text(encoding="utf-8")))

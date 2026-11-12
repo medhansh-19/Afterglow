@@ -207,6 +207,15 @@ class PackagingTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(len(json.loads(output.read_text())["budgetViolations"]), 1)
 
+    def test_checked_in_size_budget_and_invalid_values(self):
+        path = self.root / "budget.json"
+        path.write_text(json.dumps({"schemaVersion": 1, "maxInstallerBytes": 25, "maxInstalledBytes": 100}))
+        self.assertEqual(package.load_budget(path), [25, 100])
+        path.write_text(json.dumps({"schemaVersion": 1, "maxInstallerBytes": True, "maxInstalledBytes": 100}))
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            package.load_budget(path)
+        self.assertEqual(package.load_budget(SCRIPTS.parent / "size-budget.json"), [25000000, 100000000])
+
 
 if __name__ == "__main__":
     unittest.main()
