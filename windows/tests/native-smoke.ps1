@@ -2,6 +2,7 @@ param(
   [Parameter(Mandatory = $true)][string]$AppPath,
   [string]$OutputDirectory = "$PSScriptRoot/../../output/windows-native-smoke",
   [switch]$CheckDesktop,
+  [switch]$MeasurePerformance,
   [ValidateSet('modern','legacy')][string]$DesktopLayout = 'modern'
 )
 $ErrorActionPreference = 'Stop'
@@ -193,6 +194,9 @@ public static class AfterglowSmokeWindow {
   Wait-Until { (Test-Path $log) -and (Get-Content $log -Raw).Contains('ui-ready') } 'WebView2 did not report native UI readiness.'
   Invoke-Button 'Try the silent demo'
   Wait-Until { (Get-Content $log -Raw).Contains('lyrics:demo') } 'Native UI did not invoke packaged lyric service.'
+  if ($MeasurePerformance) {
+    & "$PSScriptRoot/../scripts/measure-process-tree.ps1" -AppProcessId $application.Id -Scenario 'visible-silent-demo' -Seconds 15 -Output (Join-Path $OutputDirectory 'performance-visible.json')
+  }
   Invoke-Button 'Controls'
   Invoke-Button 'Appearance'
   # Change a native accessible range twice: the second save exercises replace-existing semantics.
@@ -230,6 +234,9 @@ public static class AfterglowSmokeWindow {
   Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($window) } 'Close did not hide the main window.'
   $application.Refresh()
   if ($application.HasExited) { throw 'Close exited the app instead of retaining the tray owner.' }
+  if ($MeasurePerformance) {
+    & "$PSScriptRoot/../scripts/measure-process-tree.ps1" -AppProcessId $application.Id -Scenario 'hidden-tray' -Seconds 15 -Output (Join-Path $OutputDirectory 'performance-tray.json')
+  }
   $restore = Start-Process -FilePath $AppPath -PassThru
   if (-not $restore.WaitForExit(10000)) { $restore.Kill($true); throw 'Restore app invocation did not exit.' }
   Wait-Until { [AfterglowSmokeWindow]::IsWindowVisible($window) } 'Single-instance restore did not reopen the window.'
@@ -321,6 +328,9 @@ public static class AfterglowSmokeWindow {
     }
     Wait-Until { $reason = [AfterglowSmokeWindow]::ValidateDesktop($application.Id); if ($reason -ne $script:lastDesktopReason) { Write-Host ('Desktop validation: ' + $reason); $script:lastDesktopReason = $reason }; (Get-Content $log -Raw).Contains('desktop-ready') -and $reason -eq '' } 'Wallpaper did not become a full-monitor Explorer child.' 45
     Wait-Until { -not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Desktop Mode did not hide its main window after readiness.'
+    if ($MeasurePerformance) {
+      & "$PSScriptRoot/../scripts/measure-process-tree.ps1" -AppProcessId $application.Id -Scenario 'wallpaper-native-host' -Seconds 15 -Output (Join-Path $OutputDirectory 'performance-wallpaper.json')
+    }
     [AfterglowSmokeWindow]::RevealFixture()
     if ($baselinePixels -gt 40) {
       Wait-Until { (Capture-DesktopSignal) -gt 40 } 'Wallpaper windows exist but their lyric-colored pixels were not visible on the desktop.' 20

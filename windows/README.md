@@ -34,14 +34,14 @@ From the repository root in PowerShell:
 
 ```powershell
 swift run CoreChecks
+python -m pip install -r windows/scripts/requirements-build.txt
 ./windows/scripts/build-sidecar.ps1
 npm ci --prefix linux
 npm test --prefix linux
 node --test windows/tests/*.test.js
 npm run build --prefix linux
 python linux/scripts/collect-notices.py
-Set-Location linux
-npm run tauri -- build --config ../windows/tauri.windows.conf.json
+./windows/scripts/build-installer.ps1
 ```
 
 The `linux/` directory contains the shared desktop frontend and Rust shell for both ports; the Windows config selects its native adapters and Windows installer. The setup executable is written under `linux/src-tauri/target/release/bundle/nsis/`. Development also needs the built sidecar:
@@ -52,6 +52,8 @@ npm run tauri -- dev --config ../windows/tauri.windows.conf.json
 ```
 
 Browser preview and macOS checks exercise portable logic only. Windows CI compiles the native adapters, runs Windows tests and packages the app. Real Spotify/Apple Music, capture isolation, Explorer recovery, sleep/wake and hardware power behavior remain separate acceptance tests. See [PLAN.md](PLAN.md) for architecture and official API sources.
+
+Package optimization and measurement commands are documented in [OPTIMIZATION.md](OPTIMIZATION.md). The default build retains the full Swift runtime until the smaller dependency-based bundle completes acceptance testing.
 
 The listening footer follows the Mac layout: centered title and artist above progress/time, with transport controls in Controls → Player. Beat sync has a real switch in Appearance and Beat sync settings; known player audio is selected only when unambiguous. Waiting, silence and missing audio are labelled separately from a live signal.
 

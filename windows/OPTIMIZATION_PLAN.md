@@ -6,7 +6,7 @@ Date: 12 November 2026
 
 Reduce the Windows download, installed footprint and idle resource use while preserving current functionality, visual assets, rendering quality, lyric accuracy and update compatibility. The reported ~110 MB Windows and ~10 MB macOS figures are user estimates, not measured baselines. Do not promise macOS-sized Windows packages: macOS supplies frameworks that Windows currently receives as private Swift runtime DLLs.
 
-This is a plan only. Windows implementation inspected read-only at `/Users/medhanshadhlakha/.codex/worktrees/afterglow-windows-fixes/Afterglow` (branch `codex/windows-desktop`). Confirm the release commit and outstanding changes there before implementation. No application code or build configuration was changed for this plan.
+Initial plan inspected the Windows implementation on branch `codex/windows-desktop`. Implementation proceeds in isolated branch `codex/windows-optimization`; see `OPTIMIZATION.md` for implemented tooling and validation status. Existing uncommitted interface/desktop changes in the original worktree are excluded.
 
 ## Findings from the repository
 
