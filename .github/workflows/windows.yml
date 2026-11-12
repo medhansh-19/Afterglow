@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       runtime_mode:
-        description: Swift DLL bundle (imports is an unvalidated optimization candidate)
+        description: Swift DLL bundle (full baseline, complete app runtime, or experimental imports)
         type: choice
-        options: [full, imports]
+        options: [full, runtime, imports]
         default: full
       native_profile:
         description: Native compiler profile to compare with baseline

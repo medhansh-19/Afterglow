@@ -156,6 +156,20 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(report["files"]), 2)
         self.assertEqual(report["excludedBytes"], 0)
 
+    def test_runtime_mode_keeps_unimported_application_runtime_libraries(self):
+        self.dll("swiftCore.dll")
+        self.dll("runtimeLoaded.dll", ["nested.dll"])
+        self.dll("nested.dll")
+        report = self.stage(mode="runtime")
+        self.assertEqual(len(report["files"]), 3)
+        self.assertEqual(report["excludedBytes"], 0)
+
+    def test_runtime_mode_validates_dependencies_of_unimported_libraries(self):
+        self.dll("swiftCore.dll")
+        self.dll("runtimeLoaded.dll", ["missing.dll"])
+        with self.assertRaisesRegex(ValueError, "missing.dll"):
+            self.stage(mode="runtime")
+
     def test_wrong_architecture_rejected(self):
         fixture = self.root / "fixture.exe"
         pe_fixture(fixture, machine=0x14c)

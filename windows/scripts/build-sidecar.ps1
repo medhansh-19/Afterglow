@@ -1,6 +1,6 @@
 param(
     [string]$TargetTriple = 'x86_64-pc-windows-msvc',
-    [ValidateSet('full','imports')][string]$RuntimeMode = 'full'
+    [ValidateSet('full','runtime','imports')][string]$RuntimeMode = 'full'
 )
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows lyric service on Windows.' }
@@ -63,7 +63,7 @@ try {
             }
         }
     }
-    if ($RuntimeMode -eq 'imports') {
+    if ($RuntimeMode -ne 'full') {
         # Swift 6.2.1 installs distinct compiler and application runtimes. Their
         # identically named BlocksRuntime DLLs are not byte-identical. Pin to the
         # active toolchain's sibling runtime instead of mixing both distributions.

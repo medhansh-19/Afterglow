@@ -1,6 +1,7 @@
 """Stage Windows x64 Swift DLLs with a reproducible dependency/size manifest.
 
-Full mode preserves the previous broad runtime set. Imports mode is a candidate
+Full mode preserves the previous broad runtime set. Runtime mode retains the
+complete application runtime from pinned roots. Imports mode is a candidate
 for acceptance testing, not proof that dynamically loaded libraries are unused.
 Only explicit runtime roots supply redistributables; System32 is never copied.
 """
@@ -104,6 +105,15 @@ def select_runtime(binary, candidates, system, extra, mode, reader=inspect_pe):
             selected[name] = choices[0]
             reasons[name].add("full runtime compatibility bundle")
         return selected, reasons, system_imports
+    if mode == "runtime":
+        # Keep all application-distribution DLLs, including runtime-loaded ones.
+        # Still validate every ordinary/delay/forwarded dependency below.
+        for name, choices in sorted(candidates.items()):
+            if len({choice["sha256"] for choice in choices}) != 1:
+                raise ValueError(f"Conflicting copies of {name}; pin runtime roots.")
+            selected[name] = choices[0]
+            reasons[name].add("complete pinned application runtime")
+            queue.extend((dependency, name) for dependency in choices[0]["imports"])
     system_names = {p.name.lower() for p in system.iterdir() if p.is_file()}
     while queue:
         name, parent = queue.popleft()
@@ -150,7 +160,7 @@ def stage(binary, roots, system, destination, report, extra, mode, reader=inspec
     total = sum(item["bytes"] for item in files)
     result = {
         "schemaVersion": 1, "mode": mode,
-        "acceptance": "unvalidated candidate" if mode == "imports" else "compatibility baseline",
+        "acceptance": "compatibility baseline" if mode == "full" else "candidate; see installed acceptance evidence",
         "helper": {"sha256": digest(binary), "bytes": binary.stat().st_size},
         "runtimeBytes": total, "fullRuntimeBytes": all_bytes,
         "excludedBytes": all_bytes - total,
@@ -174,7 +184,7 @@ def main():
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--extras", type=Path, required=True)
-    parser.add_argument("--mode", choices=["full", "imports"], default="full")
+    parser.add_argument("--mode", choices=["full", "runtime", "imports"], default="full")
     args = parser.parse_args()
     roots = [Path(p) for p in json.loads(args.roots.read_text(encoding="utf-8-sig"))]
     extra = json.loads(args.extras.read_text(encoding="utf-8-sig"))["libraries"]
