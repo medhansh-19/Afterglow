@@ -19,7 +19,8 @@ if ($NativeProfile -ne 'baseline') {
 $previous = @{}
 foreach ($key in $settings.Keys) {
     $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
-    [Environment]::SetEnvironmentVariable($key, $settings[$key], 'Process')
+    if ($null -eq $settings[$key]) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+    else { [Environment]::SetEnvironmentVariable($key, $settings[$key], 'Process') }
 }
 Push-Location (Join-Path $repo 'linux')
 try {
@@ -38,6 +39,7 @@ try {
 } finally {
     Pop-Location
     foreach ($key in $previous.Keys) {
-        [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process')
+        if ($null -eq $previous[$key]) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process') }
     }
 }

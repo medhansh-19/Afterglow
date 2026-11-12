@@ -72,6 +72,7 @@ jobs:
         shell: pwsh
         run: |
           if (Get-Command swift -ErrorAction SilentlyContinue) { throw 'This audit requires a runner without the Swift toolchain.' }
+          ./windows/tests/packaging.ps1
           python -m pip install -r windows/scripts/requirements-build.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s windows/tests -p test_packaging.py -v
