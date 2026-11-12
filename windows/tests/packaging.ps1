@@ -8,12 +8,12 @@ foreach ($key in $keys) { $saved[$key] = [Environment]::GetEnvironmentVariable($
 $metadata = Join-Path $PSScriptRoot '../test-results/size/build.json'
 $metadataBefore = if (Test-Path $metadata) { [IO.File]::ReadAllBytes($metadata) } else { $null }
 function npm {
-    foreach ($key in $script:expected.Keys) {
+    foreach ($key in $global:AfterglowPackagingExpected.Keys) {
         $actual = [Environment]::GetEnvironmentVariable($key, 'Process')
-        if ($actual -cne $script:expected[$key]) { throw "$key expected '$($script:expected[$key])', got '$actual'." }
-        if ($null -eq $script:expected[$key] -and (Test-Path "Env:$key")) { throw "$key must be absent, not empty." }
+        if ($actual -cne $global:AfterglowPackagingExpected[$key]) { throw "$key expected '$($global:AfterglowPackagingExpected[$key])', got '$actual'." }
+        if ($null -eq $global:AfterglowPackagingExpected[$key] -and (Test-Path "Env:$key")) { throw "$key must be absent, not empty." }
     }
-    $global:LASTEXITCODE = if ($script:failBuild) { 1 } else { 0 }
+    $global:LASTEXITCODE = if ($global:AfterglowPackagingFailBuild) { 1 } else { 0 }
 }
 function git { 'test-commit' }
 function rustc { 'test-rust' }
@@ -21,20 +21,20 @@ function swift { 'test-swift' }
 try {
     foreach ($key in $keys) { [Environment]::SetEnvironmentVariable($key, 'saved-test-value', 'Process') }
     foreach ($profile in @('baseline','balanced','size')) {
-        $script:expected = @{
+        $global:AfterglowPackagingExpected = @{
             CARGO_PROFILE_RELEASE_LTO = $null
             CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $null
             CARGO_PROFILE_RELEASE_STRIP = $null
             CARGO_PROFILE_RELEASE_OPT_LEVEL = $null
         }
         if ($profile -ne 'baseline') {
-            $script:expected.CARGO_PROFILE_RELEASE_LTO = if ($profile -eq 'size') { 'true' } else { 'thin' }
-            $script:expected.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
-            $script:expected.CARGO_PROFILE_RELEASE_STRIP = 'debuginfo'
-            $script:expected.CARGO_PROFILE_RELEASE_OPT_LEVEL = if ($profile -eq 'size') { 's' } else { '3' }
+            $global:AfterglowPackagingExpected.CARGO_PROFILE_RELEASE_LTO = if ($profile -eq 'size') { 'true' } else { 'thin' }
+            $global:AfterglowPackagingExpected.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
+            $global:AfterglowPackagingExpected.CARGO_PROFILE_RELEASE_STRIP = 'debuginfo'
+            $global:AfterglowPackagingExpected.CARGO_PROFILE_RELEASE_OPT_LEVEL = if ($profile -eq 'size') { 's' } else { '3' }
         }
         foreach ($failure in @($false,$true)) {
-            $script:failBuild = $failure
+            $global:AfterglowPackagingFailBuild = $failure
             $thrown = $false
             try { & "$PSScriptRoot/../scripts/build-installer.ps1" -NativeProfile $profile }
             catch { if (-not $failure -or $_.Exception.Message -ne 'Windows installer build failed.') { throw }; $thrown = $true }
@@ -53,5 +53,6 @@ try {
     if ($null -eq $metadataBefore) { Remove-Item $metadata -Force -ErrorAction SilentlyContinue }
     else { [IO.File]::WriteAllBytes($metadata, $metadataBefore) }
     Remove-Item Function:npm,Function:git,Function:rustc,Function:swift
+    Remove-Variable AfterglowPackagingExpected,AfterglowPackagingFailBuild -Scope Global -ErrorAction SilentlyContinue
     $global:LASTEXITCODE = 0
 }
