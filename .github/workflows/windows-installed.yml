@@ -82,6 +82,7 @@ jobs:
           ConvertTo-Json -InputObject @((Join-Path $install 'runtime')) | Set-Content $roots -Encoding utf8
           python windows/scripts/stage-runtime.py --binary (Join-Path $install 'afterglow-lyrics.exe') --roots $roots --system (Join-Path $env:SystemRoot 'System32') --destination (Join-Path $env:RUNNER_TEMP 'audited-runtime') --report windows/test-results/size/installed-runtime-manifest.json --extras windows/runtime-extra-dlls.json --mode imports
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./windows/tests/provider-smoke.ps1 -HelperPath (Join-Path $install 'afterglow-lyrics.exe')
       - uses: actions/upload-artifact@v4
         if: always()
         with:
