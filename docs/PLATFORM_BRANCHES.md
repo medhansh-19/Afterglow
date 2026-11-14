@@ -4,9 +4,9 @@ The platform branches start from the same version of `main`:
 
 | Branch | Platform | Build workflow |
 | --- | --- | --- |
-| `codex/windows` | Windows | `.github/workflows/windows.yml` |
-| `codex/macos` | macOS | `.github/workflows/macos.yml` |
-| `codex/linux` | Linux | `.github/workflows/linux.yml` |
+| `release/windows` | Windows | `.github/workflows/windows.yml` |
+| `release/mac` | macOS | `.github/workflows/macos.yml` |
+| `release/linux` | Linux | `.github/workflows/linux.yml` |
 
 Push platform work to its matching branch to run that platform build. Download
 build outputs from the workflow run in GitHub Actions. Release publishing remains
