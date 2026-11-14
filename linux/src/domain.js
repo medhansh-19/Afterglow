@@ -13,7 +13,7 @@ export const defaults = {
   date: false,
   clockSize: 100,
   motion: true,
-  estimatedWords: true,
+  estimatedWords: false,
   chorusMemory: true,
   fontSize: 38,
   wallpaper: null,
@@ -23,6 +23,7 @@ export const defaults = {
 export function newLibrary() {
   return {
     version: 1,
+    suppliedWordTimingDefaultApplied: true,
     playerBus: null,
     settings: { ...defaults },
     scenes: {},
@@ -214,6 +215,12 @@ export function readLibrary(value) {
       invalid();
     base.excerpts = value.excerpts;
   }
+  // Older versions enabled estimated highlights automatically, including saved scenes.
+  // Apply the precise default once; subsequent explicit choices survive roundtrips.
+  if (value.suppliedWordTimingDefaultApplied !== true) {
+    base.settings.estimatedWords = false;
+    base.scenes = Object.fromEntries(Object.entries(base.scenes).map(([id, scene]) => [id, { ...scene, estimatedWords: false }]));
+  }
   return base;
 }
 export function recordingKey(track) {
@@ -243,7 +250,42 @@ export function positionAt(sample, now) {
     ),
   );
 }
+// Resolve from the media clock so seeking into a brief pause preserves the same lyric.
 export function resolveLine(lines, time, estimated = true, duration = 0) {
+  const empty = { index: -1, words: [], active: -1 };
+  if (!Number.isFinite(time) || time < 0 || (duration > 0 && time >= duration)) return empty;
+  const isVocal = (line) => /[\p{L}\p{N}]/u.test(line.text.trim()) &&
+    !/^(?:\[|\()?(?:instrumental|music|interlude)(?:\]|\))?$/i.test(line.text.trim());
+  const displayEnd = (index) => {
+    const line = lines[index], next = lines[index + 1]?.time ?? (duration > 0 ? duration : line.time + 5);
+    let end = Math.min(next, line.end ?? next);
+    const count = line.text.trim().split(/\s+/u).length;
+    if (!line.words?.length && end - line.time > 30 && count <= 24)
+      end = Math.min(end, line.time + Math.min(16, Math.max(8, count * .8)));
+    return end;
+  };
+  let low = 0, high = lines.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (lines[mid].time <= time) low = mid + 1; else high = mid;
+  }
+  const current = low - 1;
+  if (current < 0) return empty;
+  if (isVocal(lines[current]) && time < displayEnd(current)) return resolveTimedLine(lines, time, estimated, duration);
+  let previous = current;
+  while (previous >= 0 && !isVocal(lines[previous])) previous--;
+  let next = current + 1;
+  while (next < lines.length && !isVocal(lines[next])) next++;
+  const stop = lines[next]?.time ?? duration;
+  const start = previous >= 0 ? displayEnd(previous) : lines[0].time;
+  // Hold only short complete gaps; never highlight an already finished word.
+  if (previous >= 0 && stop - start <= 1.5 && stop > time) {
+    const held = resolveTimedLine(lines, Math.max(lines[previous].time, start - 0.000001), estimated, duration);
+    return { ...held, active: -1 };
+  }
+  return empty;
+}
+function resolveTimedLine(lines, time, estimated = true, duration = 0) {
   let low = 0,
     high = lines.length;
   while (low < high) {

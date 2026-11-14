@@ -23,7 +23,7 @@ enum NetEaseLyrics {
         let yrc: LRC?
     }
 
-    static func fetch(_ track: Track, transport: any LyricTransport) async throws -> LyricDocument? {
+    static func fetch(_ track: Track, transport: any LyricTransport, wordTimingOnly: Bool = false) async throws -> LyricDocument? {
         var search = URLComponents(string: "https://music.163.com/api/search/get")!
         search.queryItems = [
             .init(name: "s", value: track.artist + " " + RecordingMatch.queryTitle(track.title)),
@@ -43,7 +43,7 @@ enum NetEaseLyrics {
             let primaryOnly = RecordingMatch.queryTitle(track.title) == track.title
                 && song.artists.first.map { RecordingMatch.artistsMatch(track, candidate: $0.name) } == true
             return song.id > 0 && seconds.isFinite && seconds > 0 && track.duration > 0
-                && abs(seconds - track.duration) <= min(10, track.duration * 0.05)
+                && abs(seconds - track.duration) <= (wordTimingOnly ? 2 : min(10, track.duration * 0.05))
                 && RecordingMatch.title(song.name) == RecordingMatch.title(track.title)
                 && (RecordingMatch.artistsMatch(track, candidate: creditedArtists) || primaryOnly)
                 && RecordingMatch.compatibleVersion(track, candidateAlbum: song.album?.name ?? "", candidateTitle: song.name)
@@ -63,9 +63,11 @@ enum NetEaseLyrics {
                 ? wordTimed : LyricCredits.clean(EnhancedLRC.parse(payload.lrc?.lyric ?? ""))
             guard lines.filter({ LyricScene.isVocal($0) }).count >= 2,
                 lines.allSatisfy({ $0.time <= candidate.duration / 1000 + 2 && ($0.words.last?.time ?? 0) <= candidate.duration / 1000 + 2 }) else { continue }
-            return LyricDocument(lines: lines, plainText: lines.map(\.text).joined(separator: "\n"), source: .netease,
+            let document = LyricDocument(lines: lines, plainText: lines.map(\.text).joined(separator: "\n"), source: .netease,
                 automaticMatch: abs(candidate.duration / 1000 - track.duration) > 2,
                 matchedDuration: candidate.duration / 1000, timingRevision: 2)
+            if wordTimingOnly && document.wordTimingCoverage < 0.8 { continue }
+            return document
         }
         return nil
     }

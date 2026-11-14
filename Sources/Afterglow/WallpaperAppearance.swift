@@ -32,7 +32,7 @@ final class WallpaperAppearance: ObservableObject {
       emoji: d.string(forKey: "afterglow.markerEmoji") ?? "✨",
       clock: d.object(forKey: "afterglow.clock") as? Bool ?? true,
       motion: d.object(forKey: "afterglow.motion") as? Bool ?? true,
-      estimatedWords: d.object(forKey: "afterglow.estimatedWords") as? Bool ?? true,
+      estimatedWords: d.object(forKey: "afterglow.estimatedWords") as? Bool ?? false,
       wallpaper: imageData)
   }
   private func apply(_ value: SongAppearance) {

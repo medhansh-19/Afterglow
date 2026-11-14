@@ -188,6 +188,19 @@ actor FixtureTransport: LyricTransport {
     func calls() -> [URL] { urls }
 }
 func response(_ text: String, status: Int = 200) -> LyricHTTPResponse { .init(data: Data(text.utf8), status: status) }
+
+let wordPreferenceSuite = "AfterglowWordTimingTests." + UUID().uuidString
+let wordPreferences = UserDefaults(suiteName: wordPreferenceSuite)!
+wordPreferences.set(true, forKey: "afterglow.estimatedWords")
+WordTimingPreferences.prepare(wordPreferences)
+expect(wordPreferences.bool(forKey: "afterglow.estimatedWords"), false,
+    "legacy automatic word estimates migrate to supplied-timing mode")
+wordPreferences.set(true, forKey: "afterglow.estimatedWords")
+WordTimingPreferences.prepare(wordPreferences)
+expect(wordPreferences.bool(forKey: "afterglow.estimatedWords"), true,
+    "explicitly enabled estimates survive subsequent launches")
+wordPreferences.removePersistentDomain(forName: wordPreferenceSuite)
+
 let testTrack = Track(title: "Song", artist: "Artist", album: "Deluxe", duration: 200)
 let timedRecord = #"{"trackName":"Song","artistName":"Artist","duration":200,"syncedLyrics":"[00:01]Example"}"#
 let relaxedTransport = FixtureTransport([response("", status: 404), response(timedRecord)])
@@ -197,7 +210,7 @@ expect(resolved?.timed, true, "alternate album lookup recovers timed lyrics")
 let relaxedCalls = await relaxedTransport.calls()
 expect(URLComponents(url: relaxedCalls[1], resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "album_name" }, false, "second lookup omits mismatched album edition")
 _ = try await relaxedResolver.fetch(testTrack)
-expect(await relaxedTransport.calls().count, 2, "successful lyrics cache avoids repeated requests")
+expect(await relaxedTransport.calls().count, relaxedCalls.count, "successful lyrics cache avoids repeated requests after bounded word check")
 let fallback = FixtureTransport([response("", status: 503), response("", status: 503), response("", status: 503), response("", status: 404), response(#"{"lyrics":"Untimed example"}"#)])
 let fallbackResult = try await LyricsResolver(transport: fallback, cache: LyricCache()).fetch(testTrack)
 expect(fallbackResult?.source, .lyricsOVH, "service failure falls back to independent provider")
@@ -219,7 +232,7 @@ expect(ImportedLyrics.parse("[00:01]<00:01.00>Hidden tags", extension: "lrc") ==
 
 let recoveredSearch = FixtureTransport([response("", status: 503), response("[" + timedRecord + "]")])
 expect(try await LyricsResolver(transport: recoveredSearch, cache: LyricCache()).fetch(testTrack)?.timed, true, "search recovers timed lyrics after exact endpoint fails")
-expect(await recoveredSearch.calls().last?.path, "/api/search", "server error no longer skips search")
+expect(await recoveredSearch.calls().last(where: { $0.host == "lrclib.net" })?.path, "/api/search", "server error no longer skips search")
 let versionRecord = #"{"id":12,"trackName":"Song","artistName":"Artist","albumName":"Original album","duration":206,"syncedLyrics":"[00:01]Example"}"#
 let versions = FixtureTransport([response("", status: 404), response("", status: 404), response("[" + versionRecord + "]"), response("[]"), response("", status: 404), response(#"{"lyrics":"Plain text"}"#)])
 let versionResult = try await LyricsResolver(transport: versions, cache: LyricCache()).fetch(testTrack)
@@ -257,7 +270,7 @@ expect(await throttled.calls().filter { $0.host == "lrclib.net" }.count, 1, "rat
 let offlineTransport = FixtureTransport([])
 let offlineResult = try await LyricsResolver(transport: offlineTransport, cache: reloadedCache).fetch(testTrack)
 expect(offlineResult?.timed, true, "saved timed lyrics display without network")
-expect(await offlineTransport.calls().isEmpty, true, "relaunch cache avoids all network requests")
+expect(await offlineTransport.calls().allSatisfy { $0.host != "lrclib.net" }, true, "relaunch cache avoids repeated primary lookups while checking missing word timings")
 let legacy = try JSONDecoder().decode(LyricDocument.self, from: Data(#"{"lines":[],"plainText":"Original import","source":"local","instrumental":false}"#.utf8))
 expect(legacy.plainText, "Original import", "existing imported libraries survive schema update")
 if CommandLine.arguments.contains("--live-ophelia") {
@@ -526,7 +539,8 @@ expect(try await LyricsResolver(transport: wrongBackup, cache: LyricCache()).fet
 let noBackups = FixtureTransport([])
 _ = try await LyricsResolver(transport: noBackups, cache: LyricCache()).fetch(testTrack, allowPlainFallback: false, allowTimedFallback: false)
 expect(await noBackups.calls().allSatisfy { $0.host == "lrclib.net" }, true, "both backups disabled sends metadata only to LRCLIB")
-let primaryOnly = FixtureTransport([response(timedRecord)])
+let primaryWordRecord = String(data: try JSONSerialization.data(withJSONObject: ["trackName": "Song", "artistName": "Artist", "duration": 200, "lyricsfile": yaml.components(separatedBy: "- text: 'A line")[0]]), encoding: .utf8)!
+let primaryOnly = FixtureTransport([response(primaryWordRecord)])
 _ = try await LyricsResolver(transport: primaryOnly, cache: LyricCache()).fetch(testTrack)
 expect(await primaryOnly.calls().count, 1, "primary success avoids every fallback")
 
@@ -650,6 +664,82 @@ expect(independentDocument?.source, .netease, "independent synced provider survi
 expect(independentDocument?.lines.map(\.time), [1, 3], "independent provider keeps supplied timestamps for the word graph")
 expect(independentDocument?.lines.allSatisfy { $0.words.isEmpty }, true, "line source never fabricates word timestamps")
 expect(await independentCache.read(testTrack, allowPlain: true, allowTimedFallback: false) == nil, true, "disabled synced backups exclude NetEase cache")
+// Regression: successful line-timed results must not prevent a supplied-word upgrade.
+actor IntermediateLyrics {
+    private var documents: [LyricDocument] = []
+    func append(_ document: LyricDocument) { documents.append(document) }
+    func count() -> Int { documents.count }
+    func first() -> LyricDocument? { documents.first }
+}
+let lineUpgradeProgress = IntermediateLyrics()
+let lineUpgradeCache = LyricCache()
+let lineUpgradeTransport = FixtureTransport([response(timedRecord), response(karalyrRecord)])
+let lineUpgrade = try await LyricsResolver(transport: lineUpgradeTransport, cache: lineUpgradeCache).fetch(testTrack,
+    onLineLyrics: { await lineUpgradeProgress.append($0) })
+expect(lineUpgrade?.source, .karalyr, "line-only primary upgrades to independent supplied word timestamps")
+expect(lineUpgrade?.wordTimingCoverage, 1, "upgrade supplies word timestamps for vocal lines")
+expect(await lineUpgradeProgress.first()?.source, .lrclib, "line lyrics are delivered before the word lookup finishes")
+expect(await lineUpgradeProgress.first()?.wordTimingCoverage, 0, "intermediate data keeps honest line-only timing")
+expect(await lineUpgradeCache.read(testTrack, allowPlain: true)?.source, .karalyr, "word upgrade replaces line-only cache")
+
+let cachedLineUpgradeCache = LyricCache()
+await cachedLineUpgradeCache.put(testTrack, LyricDocument(lines: [.init(time: 1, text: "Example")], source: .lrclib))
+let cachedLineUpgradeTransport = FixtureTransport([response(karalyrRecord)])
+expect(try await LyricsResolver(transport: cachedLineUpgradeTransport, cache: cachedLineUpgradeCache).fetch(testTrack)?.source,
+    .karalyr, "existing cached line timing can upgrade without refetching the primary")
+expect(await cachedLineUpgradeTransport.calls().first?.host, "www.karalyr.com", "cached line upgrade starts at the independent word source")
+
+let upgradeOutageCacheURL = cacheFolder.appendingPathComponent("word-check.json")
+let upgradeOutageCache = LyricCache(storageURL: upgradeOutageCacheURL)
+let upgradeOutage = FixtureTransport([response(timedRecord), response("", status: 503)])
+let upgradeOutageResolver = LyricsResolver(transport: upgradeOutage, cache: upgradeOutageCache)
+expect(try await upgradeOutageResolver.fetch(testTrack)?.lines.first?.text, "Example", "word provider outages preserve exact line lyrics")
+let upgradeOutageCalls = await upgradeOutage.calls().count
+_ = try await upgradeOutageResolver.fetch(testTrack)
+expect(await upgradeOutage.calls().count, upgradeOutageCalls, "failed word upgrades have a bounded retry cooldown")
+expect(await LyricCache(storageURL: upgradeOutageCacheURL).needsWordTimingCheck(testTrack), false,
+    "word check cooldown survives helper process restarts")
+
+let privateWordUpgrade = FixtureTransport([response(timedRecord)])
+expect(try await LyricsResolver(transport: privateWordUpgrade, cache: LyricCache()).fetch(testTrack,
+    allowTimedFallback: false)?.source, .lrclib, "disabled backups preserve primary line lyrics")
+expect(await privateWordUpgrade.calls().count, 1, "word upgrades honor backup privacy preferences")
+
+let nearWordRecord = karalyrRecord.replacingOccurrences(of: #""duration":200"#, with: #""duration":206"#)
+let nearWordUpgrade = FixtureTransport([response(timedRecord), response(nearWordRecord)],
+    netEaseReplies: [response(independentMetadata.replacingOccurrences(of: "200000", with: "206000"))])
+expect(try await LyricsResolver(transport: nearWordUpgrade, cache: LyricCache()).fetch(testTrack)?.source, .lrclib,
+    "a nearby edit's word timestamps never displace exact line timing")
+expect(await nearWordUpgrade.calls().contains { $0.path == "/api/song/lyric/v1" }, false,
+    "word upgrade rejects nearby NetEase recordings before downloading lyrics")
+
+let independentWordLyrics = #"{"code":200,"lrc":{"lyric":"[00:01]<00:01>Original <00:02>words\n[00:03]<00:03>Next <00:04>line"}}"#
+let independentWordUpgrade = FixtureTransport([response(timedRecord), response("", status: 404)],
+    netEaseReplies: [response(independentMetadata), response(independentWordLyrics)])
+expect(try await LyricsResolver(transport: independentWordUpgrade, cache: LyricCache()).fetch(testTrack)?.wordTimingCoverage,
+    1, "word upgrade continues to NetEase when Karalyr is missing")
+
+let independentLineUpgrade = FixtureTransport([response(timedRecord), response("", status: 404)],
+    netEaseReplies: [response(independentMetadata), response(independentLyrics)])
+expect(try await LyricsResolver(transport: independentLineUpgrade, cache: LyricCache()).fetch(testTrack)?.source, .lrclib,
+    "another provider's line-only data does not displace the original lyrics")
+
+actor CancelWordUpgrade: LyricTransport {
+    private var calls = 0
+    func get(_ url: URL) async throws -> LyricHTTPResponse {
+        calls += 1
+        if calls == 1 { return response(timedRecord) }
+        throw CancellationError()
+    }
+    func count() -> Int { calls }
+}
+let cancelledWordUpgrade = CancelWordUpgrade()
+var cancelledUpgrade = false
+do { _ = try await LyricsResolver(transport: cancelledWordUpgrade, cache: LyricCache()).fetch(testTrack) }
+catch is CancellationError { cancelledUpgrade = true }
+expect(cancelledUpgrade, true, "word upgrade cancellation propagates instead of returning old data")
+expect(await cancelledWordUpgrade.count(), 2, "cancelled word upgrades never start the next provider")
+
 let mismatchIndependent = FixtureTransport([], netEaseReplies: [response(independentMetadata.replacingOccurrences(of: "200000", with: "240000"))])
 _ = try await LyricsResolver(transport: mismatchIndependent, cache: LyricCache()).fetch(testTrack)
 expect(await mismatchIndependent.calls().contains { $0.path == "/api/song/lyric/v1" }, false, "wrong recording duration never fetches NetEase lyrics")
@@ -747,7 +837,7 @@ expect(await deliveryCache.read(testTrack, allowPlain: true)?.retrievedFromCache
 let directDelivery = FixtureTransport([response(timedRecord)])
 let freshDelivery = try await LyricsResolver(transport: directDelivery, cache: deliveryCache).fetch(testTrack, bypassCache: true)
 expect(freshDelivery?.retrievedFromCache, false, "fresh library lookup remains distinct from saved results")
-expect(await directDelivery.calls().count, 1, "live library lookup contacts provider even when a timed cache exists")
+expect(await directDelivery.calls().filter { $0.host == "lrclib.net" }.count, 1, "live library lookup contacts provider even when a timed cache exists")
 expect(await deliveryCache.read(testTrack, allowPlain: true)?.removingCredits().retrievedFromCache,
     true, "display cleanup preserves the delivery provenance")
 

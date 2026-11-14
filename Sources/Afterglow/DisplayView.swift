@@ -9,7 +9,7 @@ struct DisplayView: View {
   @AppStorage("afterglow.tint") private var tintName = Tint.album.rawValue
   @AppStorage("afterglow.clock") private var showClock = true
   @AppStorage("afterglow.motion") private var motion = true
-  @AppStorage("afterglow.estimatedWords") private var estimatedWords = true
+  @AppStorage("afterglow.estimatedWords") private var estimatedWords = false
   @State private var showDock = false
   @State private var showTiming = false
   @State private var showBeats = false
@@ -77,10 +77,6 @@ struct DisplayView: View {
     .tint(tint)
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: tint)
     .onAppear {
-      if !UserDefaults.standard.bool(forKey: "afterglow.v2121.wordProgressionRestored") {
-        estimatedWords = true
-        UserDefaults.standard.set(true, forKey: "afterglow.v2121.wordProgressionRestored")
-      }
       if !UserDefaults.standard.bool(forKey: "afterglow.v2.albumDefaultApplied") {
         tintName = Tint.album.rawValue
         UserDefaults.standard.set(true, forKey: "afterglow.v2.albumDefaultApplied")

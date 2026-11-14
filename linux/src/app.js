@@ -257,7 +257,7 @@ async function loadLyrics(bypassCache = false) {
     $("#lyric-source").textContent = documentLyrics
       ? documentLyrics.instrumental
         ? "Instrumental"
-        : `${documentLyrics.source === "local" ? "Imported lyrics" : documentLyrics.source}${documentLyrics.retrievedFromCache ? " · Cached" : ""}${documentLyrics.automaticMatch ? " · Nearby recording" : ""}${documentLyrics.lines?.some((l) => l.words?.length) ? " · Word timed" : documentLyrics.lines?.length ? " · Line timed" : " · Untimed text"}`
+        : `${documentLyrics.source === "local" ? "Imported lyrics" : documentLyrics.source}${documentLyrics.retrievedFromCache ? " · Cached" : ""}${documentLyrics.automaticMatch ? " · Nearby recording" : ""}${documentLyrics.lines?.some((l) => l.words?.length) ? " · Word timed" : documentLyrics.lines?.length ? " · Line timed · no supplied word timings" : " · Untimed text"}`
       : "No lyrics found · Import your own in Controls";
     if ($("#panel").open && panelTab === "lyrics") renderPanel();
   } catch (err) {

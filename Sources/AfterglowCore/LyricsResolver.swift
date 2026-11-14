@@ -59,6 +59,12 @@ public struct LyricDocument: Codable, Sendable {
             instrumental: instrumental, alternatives: alternatives, manualMatch: manualMatch == true,
             automaticMatch: automaticMatch == true, matchedDuration: matchedDuration, timingRevision: timingRevision, retrievedFromCache: retrievedFromCache == true)
     }
+    /// Fraction of vocal lines backed by supplied word timestamps, never estimates.
+    public var wordTimingCoverage: Double {
+        let vocal = lines.filter(LyricScene.isVocal)
+        guard !vocal.isEmpty else { return 0 }
+        return Double(vocal.filter { !$0.words.isEmpty }.count) / Double(vocal.count)
+    }
     public var timed: Bool { lines.contains { !$0.text.isEmpty } }
 }
 
@@ -184,7 +190,7 @@ public actor LyricCache {
         .appendingPathComponent("Afterglow")
     public static let shared = LyricCache(storageURL: folder?.appendingPathComponent("Lyrics-v3.json"),
         legacyStorageURL: folder?.appendingPathComponent("Lyrics-v2.json"))
-    private struct Entry: Codable { let track: Track; let document: LyricDocument; let saved: Date; var accessed: Date; let matchingRevision: Int? }
+    private struct Entry: Codable { let track: Track; let document: LyricDocument; let saved: Date; var accessed: Date; let matchingRevision: Int?; var wordTimingChecked: Date? }
     private var entries: [Track: Entry] = [:]
     private var missing: [Track: Date] = [:]
     private let storageURL: URL?
@@ -224,8 +230,16 @@ public actor LyricCache {
     }
     public func put(_ track: Track, _ document: LyricDocument) {
         missing[track] = nil
-        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 5)
+        entries[track] = Entry(track: track, document: document, saved: Date(), accessed: Date(), matchingRevision: 5, wordTimingChecked: entries[track]?.wordTimingChecked)
         while entries.count > 64 { evictOldest() }
+        persist()
+    }
+    public func needsWordTimingCheck(_ track: Track) -> Bool {
+        guard let checked = entries[track]?.wordTimingChecked else { return true }
+        return Date().timeIntervalSince(checked) >= 600
+    }
+    public func recordWordTimingCheck(_ track: Track) {
+        entries[track]?.wordTimingChecked = Date()
         persist()
     }
     private func evictOldest() {
@@ -274,12 +288,15 @@ public struct LyricsResolver: Sendable {
         }
     }
 
-    public func fetch(_ track: Track, allowPlainFallback: Bool = true, allowTimedFallback: Bool = true, bypassCache: Bool = false) async throws -> LyricDocument? {
+    public func fetch(_ track: Track, allowPlainFallback: Bool = true, allowTimedFallback: Bool = true, bypassCache: Bool = false,
+                      onLineLyrics: (@Sendable (LyricDocument) async -> Void)? = nil) async throws -> LyricDocument? {
         try Task.checkCancellation()
         if !bypassCache, await cache.isMissing(track), allowPlainFallback && allowTimedFallback { return nil }
         var plain: LyricDocument?
         if !bypassCache, let cached = await cache.read(track, allowPlain: allowPlainFallback, allowTimedFallback: allowTimedFallback) {
-            if cached.timed || cached.instrumental || !allowTimedFallback { return cached }
+            if cached.timed || cached.instrumental || !allowTimedFallback {
+                return try await improvingWordTiming(cached, for: track, enabled: allowTimedFallback, onLineLyrics: onLineLyrics)
+            }
             // An untimed cache hit must not suppress a newly available synchronized backup.
             plain = cached
         }
@@ -301,7 +318,10 @@ public struct LyricsResolver: Sendable {
                 let record = try JSONDecoder().decode(Record.self, from: response.data)
                 guard record.matches(track) else { continue }
                 let document = record.document
-                if document.timed || document.instrumental { await cache.put(track, document); return document }
+                if document.timed || document.instrumental {
+                    await cache.put(track, document)
+                    return try await improvingWordTiming(document, for: track, enabled: allowTimedFallback, onLineLyrics: onLineLyrics)
+                }
                 if document.plainText?.isEmpty == false { plain = document }
             } catch {
                 try propagateCancellation(error)
@@ -331,7 +351,8 @@ public struct LyricsResolver: Sendable {
                     let matching = records.filter { $0.matches(track) }
                     let documents = matching.map(\.document).filter(\.timed)
                     if let best = documents.max(by: { $0.lines.filter { !$0.words.isEmpty }.count < $1.lines.filter { !$0.words.isEmpty }.count }) {
-                        await cache.put(track, best); return best
+                        await cache.put(track, best)
+                        return try await improvingWordTiming(best, for: track, enabled: allowTimedFallback, onLineLyrics: onLineLyrics)
                     }
                     if plain == nil { plain = matching.map(\.document).first { $0.plainText?.isEmpty == false } }
                 } catch { try propagateCancellation(error); hadFailure = true }
@@ -376,7 +397,7 @@ public struct LyricsResolver: Sendable {
                           lines.allSatisfy({ $0.time <= track.duration + 2 && ($0.words.last?.time ?? 0) <= track.duration + 2 }) else { continue }
                     let document = LyricDocument(lines: lines, plainText: record.plainLyrics, source: .karalyr)
                     await cache.put(track, document)
-                    return document
+                    return try await improvingWordTiming(document, for: track, enabled: allowTimedFallback, onLineLyrics: onLineLyrics)
                 } catch { try propagateCancellation(error); hadFailure = true; break }
             }
         }
@@ -384,7 +405,7 @@ public struct LyricsResolver: Sendable {
             do {
                 if let document = try await NetEaseLyrics.fetch(track, transport: transport) {
                     await cache.put(track, document)
-                    return document
+                    return try await improvingWordTiming(document, for: track, enabled: allowTimedFallback, onLineLyrics: onLineLyrics)
                 }
             } catch { try propagateCancellation(error); hadFailure = true }
         }
@@ -436,6 +457,48 @@ public struct LyricsResolver: Sendable {
         }
         if allowPlainFallback && allowTimedFallback { await cache.recordMissing(track) }
         return nil
+    }
+
+    /// Preserve usable line lyrics while checking a bounded set of independent word-timing sources.
+    private func improvingWordTiming(_ original: LyricDocument, for track: Track, enabled: Bool,
+                                     onLineLyrics: (@Sendable (LyricDocument) async -> Void)?) async throws -> LyricDocument {
+        guard enabled, original.timed, !original.instrumental, original.source != .local,
+              original.manualMatch != true, original.automaticMatch != true,
+              original.wordTimingCoverage < 0.8 else { return original }
+        if let onLineLyrics { await onLineLyrics(original) }
+        guard await cache.needsWordTimingCheck(track) else { return original }
+        var visited = Set<URL>()
+        if original.source != .karalyr {
+            for title in [track.title, RecordingMatch.queryTitle(track.title)] {
+                let url = endpoint("/api/get", track: track, title: title, album: nil, host: "www.karalyr.com")
+                guard visited.insert(url).inserted else { continue }
+                do {
+                    let response = try await transport.get(url)
+                    try Task.checkCancellation()
+                    if response.status == 404 { continue }
+                    guard response.status == 200 else { break }
+                    let record = try JSONDecoder().decode(Record.self, from: response.data)
+                    guard record.matches(track) else { continue }
+                    let candidate = LyricDocument(lines: record.syncedLyrics.map(EnhancedLRC.parse) ?? [],
+                        plainText: record.plainLyrics, source: .karalyr)
+                    guard candidate.wordTimingCoverage >= 0.8,
+                          candidate.lines.allSatisfy({ $0.time <= track.duration + 2 && ($0.words.last?.time ?? 0) <= track.duration + 2 }) else { continue }
+                    await cache.put(track, candidate)
+                    return candidate
+                } catch { try propagateCancellation(error); break }
+            }
+        }
+        if original.source != .netease {
+            do {
+                // A nearby edit must never replace exact line timing just to gain word highlights.
+                if let candidate = try await NetEaseLyrics.fetch(track, transport: transport, wordTimingOnly: true) {
+                    await cache.put(track, candidate)
+                    return candidate
+                }
+            } catch { try propagateCancellation(error) }
+        }
+        await cache.recordWordTimingCheck(track)
+        return original
     }
 
     private func propagateCancellation(_ error: Error) throws {
