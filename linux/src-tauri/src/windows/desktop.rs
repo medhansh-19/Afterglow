@@ -191,10 +191,11 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             SetWindowLongPtrW(
                 native,
                 GWL_STYLE,
-                ((style & !WS_POPUP.0) | WS_CHILD.0) as isize,
+                ((style & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0 | WS_BORDER.0 | WS_DLGFRAME.0)) | WS_CHILD.0) as isize,
             );
             let extended = GetWindowLongPtrW(native, GWL_EXSTYLE) as u32;
-            let flags = extended | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TRANSPARENT.0;
+            let flags = (extended & !(WS_EX_CLIENTEDGE.0 | WS_EX_WINDOWEDGE.0 | WS_EX_STATICEDGE.0 | WS_EX_DLGMODALFRAME.0))
+                | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TRANSPARENT.0;
             SetWindowLongPtrW(
                 native,
                 GWL_EXSTYLE,

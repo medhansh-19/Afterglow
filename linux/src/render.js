@@ -26,7 +26,7 @@ export function renderer(canvas, graph, clock) {
   const observer = new ResizeObserver(resize);
   observer.observe(canvas);
   resize();
-  function draw(now, { settings, line, playing, audio, track }) {
+  function draw(now, { settings, line, playing, audio, track, instrumental = false }) {
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
     last = now;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -74,7 +74,7 @@ export function renderer(canvas, graph, clock) {
     glow.addColorStop(1, "#09090b00");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
-    const mesh = ribbonMesh({
+    const mesh = !line.words.length && (line.instrumental || instrumental) ? ribbonMesh({
       width: w,
       height: h,
       phase,
@@ -83,7 +83,7 @@ export function renderer(canvas, graph, clock) {
       live: playing && audio.bands?.length === 32,
       pulse: energy * 0.2,
       reducedMotion: reduced,
-    });
+    }) : [];
     ctx.strokeStyle = settings.color;
     mesh.forEach((points, i) => {
       ctx.beginPath();
@@ -91,7 +91,7 @@ export function renderer(canvas, graph, clock) {
         const x = p.x, y = p.y;
         j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       });
-      ctx.globalAlpha = (line.words.length ? 0.18 : 0.6) * (i === 8 ? 1 : 0.45);
+      ctx.globalAlpha = 0.6 * (i === 8 ? 1 : 0.45);
       ctx.lineWidth = i === 8 ? 1.4 : 0.7;
       ctx.stroke();
     });

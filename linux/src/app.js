@@ -308,7 +308,7 @@ async function loadLyrics(bypassCache = false, automatic = false) {
     $("#lyric-source").textContent = documentLyrics
       ? documentLyrics.instrumental
         ? "Instrumental"
-        : `${documentLyrics.source === "local" ? "Imported lyrics" : documentLyrics.source}${documentLyrics.retrievedFromCache ? " · Cached" : ""}${documentLyrics.automaticMatch ? " · Nearby recording" : ""}${documentLyrics.lines?.some((l) => l.words?.length) ? " · Word timed" : documentLyrics.lines?.length ? " · Line timed" : " · Untimed text"}`
+        : `${documentLyrics.source === "local" ? "Imported lyrics" : documentLyrics.source}${documentLyrics.retrievedFromCache ? " · Cached" : ""}${documentLyrics.automaticMatch ? " · Nearby recording" : ""}${documentLyrics.lines?.some((l) => l.words?.length) ? " · Word timed" : documentLyrics.lines?.length ? " · Line timed · no supplied word timings" : " · Untimed text"}`
       : "No lyrics found · Import your own in Controls";
     if ($("#panel").open && panelTab === "lyrics") renderPanel();
   } catch (err) {
@@ -1304,7 +1304,7 @@ function tick(now) {
   if ((sample?.playing && settings.motion) || signature !== lastRender) {
     visual.draw(now, {
       settings,
-      line: lastLine,
+      line: lastLine, instrumental: documentLyrics?.instrumental === true,
       playing: !!sample?.playing,
       audio,
       track,
@@ -1313,7 +1313,7 @@ function tick(now) {
   }
   if (previewVisual && $("#panel").open &&
       ((sample?.playing && settings.motion && now - lastPreviewDraw >= (onBattery ? 100 : 67)) || signature !== lastPreviewSignature)) {
-    previewVisual.draw(now, { settings, line: lastLine, playing: !!sample?.playing, audio, track });
+    previewVisual.draw(now, { settings, line: lastLine, instrumental: documentLyrics?.instrumental === true, playing: !!sample?.playing, audio, track });
     lastPreviewDraw = now;
     lastPreviewSignature = signature;
     $("#preview-status").textContent = track ? `Current song · ${sample?.playing ? "Live" : "Paused"} preview` : "Connect a song to preview its lyrics.";
@@ -1334,7 +1334,7 @@ function tick(now) {
     call("publish_display", {
       state: {
         settings: outputSettings,
-        line: lastLine,
+        line: lastLine, instrumental: documentLyrics?.instrumental === true,
         playing: !!sample?.playing,
         sample: sample ? { position, duration: sample.duration, rate: sample.rate, playing: sample.playing } : null,
         track,

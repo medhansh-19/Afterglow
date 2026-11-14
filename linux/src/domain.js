@@ -27,7 +27,7 @@ export const defaults = {
   date: false,
   clockSize: 100,
   motion: true,
-  estimatedWords: true,
+  estimatedWords: false,
   chorusMemory: true,
   fontSize: 38,
   wallpaper: null,
@@ -48,6 +48,7 @@ const normalizeSettings = (settings) => ({
 export function newLibrary() {
   return {
     version: 1,
+    suppliedWordTimingDefaultApplied: true,
     playerBus: null,
     settings: { ...defaults },
     scenes: {},
@@ -242,6 +243,12 @@ export function readLibrary(value) {
       invalid();
     base.excerpts = value.excerpts;
   }
+  // Older versions enabled estimated highlights automatically, including saved scenes.
+  // Apply the precise default once; subsequent explicit choices survive roundtrips.
+  if (value.suppliedWordTimingDefaultApplied !== true) {
+    base.settings.estimatedWords = false;
+    base.scenes = Object.fromEntries(Object.entries(base.scenes).map(([id, scene]) => [id, { ...scene, estimatedWords: false }]));
+  }
   return base;
 }
 export function recordingKey(track) {
@@ -331,8 +338,43 @@ function chorusLines(lines) {
   preparedChoruses.set(lines, canonical);
   return canonical;
 }
+// Resolve from the media clock so seeking into a brief pause preserves the same lyric.
 export function resolveLine(lines, time, estimated = true, duration = 0, pageSize = 24) {
-  const empty = { index: -1, words: [], active: -1 };
+  const empty = { index: -1, words: [], active: -1, instrumental: false };
+  if (!Number.isFinite(time) || time < 0 || (duration > 0 && time >= duration)) return empty;
+  const isVocal = (line) => /[\p{L}\p{N}]/u.test(line.text.trim()) &&
+    !/^(?:\[|\()?(?:instrumental|music|interlude)(?:\]|\))?$/i.test(line.text.trim());
+  const displayEnd = (index) => {
+    const line = lines[index], next = lines[index + 1]?.time ?? (duration > 0 ? duration : line.time + 5);
+    let end = Math.min(next, line.end ?? next);
+    const count = line.text.trim().split(/\s+/u).length;
+    if (!line.words?.length && end - line.time > 30 && count <= 24)
+      end = Math.min(end, line.time + Math.min(16, Math.max(8, count * .8)));
+    return end;
+  };
+  let low = 0, high = lines.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (lines[mid].time <= time) low = mid + 1; else high = mid;
+  }
+  const current = low - 1;
+  if (current < 0) return empty;
+  if (isVocal(lines[current]) && time < displayEnd(current)) return resolveTimedLine(lines, time, estimated, duration, pageSize);
+  let previous = current;
+  while (previous >= 0 && !isVocal(lines[previous])) previous--;
+  let next = current + 1;
+  while (next < lines.length && !isVocal(lines[next])) next++;
+  const stop = lines[next]?.time ?? duration;
+  const start = previous >= 0 ? displayEnd(previous) : lines[0].time;
+  // Hold only short complete gaps; never highlight an already finished word.
+  if (previous >= 0 && stop - start <= 1.5 && stop > time) {
+    const held = resolveTimedLine(lines, Math.max(lines[previous].time, start - 0.000001), estimated, duration, pageSize);
+    return { ...held, active: -1 };
+  }
+  return { ...empty, instrumental: stop - start > 1.5 && time < stop };
+}
+function resolveTimedLine(lines, time, estimated = true, duration = 0, pageSize = 24) {
+  const empty = { index: -1, words: [], active: -1, instrumental: false };
   if (!Number.isFinite(time) || time < 0 || (duration > 0 && time >= duration)) return empty;
   let low = 0, high = lines.length;
   while (low < high) {
@@ -340,12 +382,14 @@ export function resolveLine(lines, time, estimated = true, duration = 0, pageSiz
     if (lines[mid].time <= time) low = mid + 1; else high = mid;
   }
   const index = low - 1, line = lines[index];
-  if (!line || !vocal(line)) return empty;
+  if (!line) return empty;
+  const stop = lines[index + 1]?.time ?? duration;
+  if (!vocal(line)) return { ...empty, instrumental: stop - line.time >= .7 && time < stop };
   const nextTime = lines[index + 1]?.time ?? (duration > 0 ? duration : line.time + 5);
   let end = Math.min(nextTime, line.end ?? nextTime);
   if (!line.words?.length && end - line.time > 30 && line.text.trim().split(/\s+/u).length <= 24)
     end = Math.min(end, line.time + Math.min(16, Math.max(8, line.text.trim().split(/\s+/u).length * .8)));
-  if (time >= end) return empty;
+  if (time >= end) return { ...empty, instrumental: nextTime - end >= .7 && time < nextTime };
   const prepared = prepareLine(line), { tokens, original, groups, weights } = prepared;
   if (!tokens.length) return empty;
   const weighted = (progress, start = 0, stop = tokens.length) => {

@@ -13,7 +13,7 @@ struct AfterglowMenu: View {
   @Environment(\.openWindow) private var openWindow
   @AppStorage("afterglow.clock") private var showClock = true
   @AppStorage("afterglow.motion") private var motion = true
-  @AppStorage("afterglow.estimatedWords") private var estimatedWords = true
+  @AppStorage("afterglow.estimatedWords") private var estimatedWords = false
   @AppStorage("afterglow.tint") private var tintName = Tint.album.rawValue
 
   var body: some View {
@@ -80,7 +80,7 @@ struct AfterglowMenu: View {
     }
     Menu("Lyric Timing") {
       Button("Timing Settings…") { present(.timing) }
-      Toggle("Word-by-Word Progression", isOn: $estimatedWords)
+      Toggle("Estimate Missing Word Timings", isOn: $estimatedWords)
       Text(model.timingDescription)
       Text(String(format: "Adjustment: %+.2f s", model.timingDelay))
       Button("Lyrics Earlier (0.1 s)") { model.setTimingDelay(model.timingDelay - 0.1) }
