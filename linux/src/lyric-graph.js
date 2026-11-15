@@ -29,6 +29,7 @@ export function graphSvgMarkup(
     lineFocus = false,
     renderWidth = 1000,
     arrangementSeed = 0,
+    diamondScale = 1,
   } = {},
 ) {
   const columns = Math.min(words.length, words.length > 12 ? 6 : 4),
@@ -74,7 +75,7 @@ export function graphSvgMarkup(
           return `${p.x + Math.cos(a) * r},${p.y + Math.sin(a) * r}`;
         }).join(" ");
       const fs = (current ? Math.max(22 * unit, base * 1.5) : base) * size;
-      return `<g class="ag-graph-node${current ? " is-active" : ""}" data-graph-word="${i}" style="color:${color};opacity:${opacity}"><text x="${p.x}" y="${p.y - 25 * unit}" text-anchor="middle" fill="currentColor" font-family="Manrope,system-ui,sans-serif" font-weight="500" font-size="${fs}" ${p.word.length * fs * 0.54 > width / columns - 18 ? `textLength="${width / columns - 18}" lengthAdjust="spacingAndGlyphs"` : ""} style="${current ? "filter:drop-shadow(0 0 22px currentColor)" : ""}">${escapeXml(p.word)}</text><path d="M${p.x} ${p.y - 7}l7 7-7 7-7-7Z" fill="currentColor" transform="translate(${p.x} ${p.y}) scale(${current || lineFocus ? 1 : 4 / 7}) translate(${-p.x} ${-p.y})"/><polygon class="ag-marker-triangle" points="${polygon(3)}" fill="currentColor"/><polygon class="ag-marker-star" points="${polygon(10, true)}" fill="currentColor"/><polygon class="ag-marker-octagon" points="${polygon(8)}" fill="currentColor"/><rect class="ag-marker-rectangle" x="${p.x - 5}" y="${p.y - 3.5}" width="10" height="7" fill="currentColor"/><circle class="ag-marker-circle" cx="${p.x}" cy="${p.y}" r="${current ? 5 : 3}" fill="currentColor"/><text class="ag-marker-sparkle" x="${p.x}" y="${p.y + 5}" text-anchor="middle" font-size="14">✨</text></g>`;
+      return `<g class="ag-graph-node${current ? " is-active" : ""}" data-graph-word="${i}" style="color:${color};opacity:${opacity}"><text x="${p.x}" y="${p.y - 25 * unit}" text-anchor="middle" fill="currentColor" font-family="Manrope,system-ui,sans-serif" font-weight="500" font-size="${fs}" ${p.word.length * fs * 0.54 > width / columns - 18 ? `textLength="${width / columns - 18}" lengthAdjust="spacingAndGlyphs"` : ""} style="${current ? "filter:drop-shadow(0 0 22px currentColor)" : ""}">${escapeXml(p.word)}</text><path d="M${p.x} ${p.y - 7}l7 7-7 7-7-7Z" fill="currentColor" transform="translate(${p.x} ${p.y}) scale(${diamondScale * (current || lineFocus ? 1 : 4 / 7)}) translate(${-p.x} ${-p.y})"/><polygon class="ag-marker-triangle" points="${polygon(3)}" fill="currentColor"/><polygon class="ag-marker-star" points="${polygon(10, true)}" fill="currentColor"/><polygon class="ag-marker-octagon" points="${polygon(8)}" fill="currentColor"/><rect class="ag-marker-rectangle" x="${p.x - 5}" y="${p.y - 3.5}" width="10" height="7" fill="currentColor"/><circle class="ag-marker-circle" cx="${p.x}" cy="${p.y}" r="${current ? 5 : 3}" fill="currentColor"/><text class="ag-marker-sparkle" x="${p.x}" y="${p.y + 5}" text-anchor="middle" font-size="14">✨</text></g>`;
     })
     .join("")}</svg>`;
 }

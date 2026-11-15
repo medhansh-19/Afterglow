@@ -296,6 +296,7 @@ fn ui_ready(app: tauri::AppHandle) -> Option<String> {
     smoke_log("ui-ready");
     #[cfg(target_os = "windows")]
     {
+        let _ = shortcuts::start(app.clone());
         let power = app.state::<power::Power>();
         let _ = app.emit_to(
             "main",

@@ -1,3 +1,5 @@
+import { WINDOWS_CLOCK_STYLES } from "./clock-preview.js";
+
 export const PRESET_COLORS = {
   Rose: "#f066ab", Blue: "#6bb0f7", Amber: "#f7b566", Mint: "#4df5bf", Violet: "#b87aff",
   "Off-white": "#f2f0e0", Scarlet: "#fa525c", Coral: "#ff7d6e", Orange: "#ff9c45", Gold: "#ffd657",
@@ -97,15 +99,7 @@ function validSettings(settings) {
     if (k === "fontSize") return finite(v, 22, 60);
     if (k === "clockSize") return finite(v, 60, 180);
     if (k === "clockStyle")
-      return [
-        "Minimal",
-        "Flip",
-        "Rounded",
-        "Glass",
-        "Ring",
-        "Analog",
-        "Classic",
-      ].includes(v);
+      return WINDOWS_CLOCK_STYLES.includes(v);
     if (k === "format") return ["System", "12", "24"].includes(v);
     if (k === "marker")
       return [

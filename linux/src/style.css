@@ -833,3 +833,23 @@ code {
 .desktop-mode .stage { min-height: 0; }
 
 .mode-controls { display:flex; flex-wrap:wrap; gap:8px; padding:0 24px 16px; }
+
+.windows-app .topbar { justify-content: flex-end; }
+.windows-app #panel .clock-settings select { background: #151518; }
+.windows-app .clock-settings option { color: #eee; background: #151518; }
+.windows-app .clock-theme { display: flex; align-items: center; gap: 8px; }
+.windows-app .clock-theme span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--lyric-color);
+}
+.windows-app .clock-settings input { accent-color: var(--lyric-color); }
+.clock[data-style="Editorial"] {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.clock-split { display: inline-flex; gap: .25em; align-items: center; }
+.clock-split > span { border-inline-start: 1px solid currentColor; padding-inline-start: .25em; }
+.windows-app.desktop-mode .stage { position: fixed; inset: 0; }

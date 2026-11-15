@@ -1,10 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { isWindows } from "./bridge";
 import { renderer } from "./render";
 import { listeningFooter, updateFooter } from "./listening-footer";
 import { createDesktopState } from "./desktop-state";
 
 document.body.classList.add("desktop-mode");
+document.body.classList.toggle("windows-app", isWindows);
 document.body.innerHTML = `<main class="stage"><canvas id="waves" aria-hidden="true"></canvas><div id="clock" class="clock"></div><div id="graph" class="graph" role="img"></div>${listeningFooter({ interactive: false })}</main>`;
 const visual = renderer(document.querySelector("#waves"), document.querySelector("#graph"), document.querySelector("#clock"));
 const timeline = createDesktopState();

@@ -174,6 +174,10 @@ pub fn artwork(bus: String) -> Result<Option<String>, String> {
         "image/png"
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
         "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
     } else {
         return Ok(None);
     };

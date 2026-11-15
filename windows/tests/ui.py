@@ -20,7 +20,7 @@ with sync_playwright() as p:
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url)
     page.wait_for_load_state("networkidle")
-    expect(page.locator(".brand")).to_contain_text("WINDOWS PREVIEW")
+    expect(page.locator(".brand")).to_have_count(0)
     expect(page.locator(".top-actions button")).to_have_count(1)
     expect(page.locator(".top-actions #controls")).to_be_visible()
     expect(page.locator(".preview-note")).to_contain_text("Windows")
@@ -46,7 +46,7 @@ with sync_playwright() as p:
     page.screenshot(path=str(out / "appearance-preview.png"))
     clock = page.locator('[data-setting="clockSize"]')
     assert clock.get_attribute("min") == "70" and clock.get_attribute("max") == "140"
-    for style in ["Minimal", "Flip", "Rounded", "Glass", "Ring", "Analog", "Classic"]:
+    for style in ["Minimal", "Flip", "Rounded", "Glass", "Ring", "Analog", "Classic", "Split", "Editorial", "Orbit"]:
         page.locator('[data-setting="clockStyle"]').select_option(style)
         expect(page.locator("#clock")).to_have_attribute("data-style", style)
     for marker in ["diamond", "circle", "triangle", "star", "octagon", "rectangle", "sparkle"]:

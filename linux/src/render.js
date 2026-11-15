@@ -1,9 +1,12 @@
 import { ribbonMesh } from "./ribbon-mesh";
 import { graphSvgMarkup } from "./lyric-graph";
+import { isWindows } from "./bridge";
+import { createWindowsBeat, windowsWaves } from "./windows-visuals";
 import { clockMarkup } from "./clock-preview";
 export function renderer(canvas, graph, clock) {
   const ctx = canvas.getContext("2d");
   let invalidation = 0;
+  const beat = createWindowsBeat();
   let w = 0,
     h = 0,
     phase = 0,
@@ -74,7 +77,9 @@ export function renderer(canvas, graph, clock) {
     glow.addColorStop(1, "#09090b00");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
-    const mesh = ribbonMesh({
+    const mesh = isWindows
+      ? windowsWaves(w, h, audio.bands || [], beat(now, playing ? audio : {}, dt), settings.motion && !reduced, now)
+      : ribbonMesh({
       width: w,
       height: h,
       phase,
@@ -91,8 +96,10 @@ export function renderer(canvas, graph, clock) {
         const x = p.x, y = p.y;
         j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       });
-      ctx.globalAlpha = (line.words.length ? 0.18 : 0.6) * (i === 8 ? 1 : 0.45);
-      ctx.lineWidth = i === 8 ? 1.4 : 0.7;
+      ctx.globalAlpha = isWindows
+        ? (line.words.length ? .14 : .52) * (i === 3 ? 1 : .55)
+        : (line.words.length ? .18 : .6) * (i === 8 ? 1 : .45);
+      ctx.lineWidth = i === (isWindows ? 3 : 8) ? 1.4 : 0.7;
       ctx.stroke();
     });
     ctx.globalAlpha = 1;
@@ -120,6 +127,7 @@ export function renderer(canvas, graph, clock) {
               (1000 * graph.clientHeight) / Math.max(1, graph.clientWidth),
             ),
             renderWidth: graph.clientWidth,
+            diamondScale: isWindows ? .65 : 1,
           })
         : "";
       graph.setAttribute("aria-label", line.words.join(" "));
@@ -139,7 +147,7 @@ export function renderer(canvas, graph, clock) {
         settings.clockSize,
       ].join(":");
     clock.hidden = !settings.clock;
-    clock.style.color = settings.clockFollowsLyrics
+    clock.style.color = isWindows || settings.clockFollowsLyrics
       ? settings.color
       : settings.clockColor;
     if (nextClock !== lastClock) {

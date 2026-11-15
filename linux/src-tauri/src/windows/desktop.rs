@@ -175,6 +175,7 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             .title("Afterglow Wallpaper")
             .visible(false)
             .decorations(false)
+            .background_color(tauri::window::Color(9, 9, 11, 255))
             .skip_taskbar(true)
             .focused(false)
             .inner_size(screen.width as f64 / scale, screen.height as f64 / scale)
@@ -191,10 +192,15 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             SetWindowLongPtrW(
                 native,
                 GWL_STYLE,
-                ((style & !WS_POPUP.0) | WS_CHILD.0) as isize,
+                ((style & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0)) | WS_CHILD.0)
+                    as isize,
             );
             let extended = GetWindowLongPtrW(native, GWL_EXSTYLE) as u32;
-            let flags = extended | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TRANSPARENT.0;
+            let frame_edges = WS_EX_CLIENTEDGE.0 | WS_EX_WINDOWEDGE.0 | WS_EX_STATICEDGE.0;
+            let flags = (extended & !frame_edges)
+                | WS_EX_NOACTIVATE.0
+                | WS_EX_TOOLWINDOW.0
+                | WS_EX_TRANSPARENT.0;
             SetWindowLongPtrW(
                 native,
                 GWL_EXSTYLE,

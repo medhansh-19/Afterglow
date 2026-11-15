@@ -26,22 +26,26 @@ pub fn run(app: &tauri::AppHandle) -> Result<(), String> {
         ("capture", b'M'),
     ];
     let mut registered = Vec::new();
+    let mut unavailable = Vec::new();
     for (index, (_, key)) in bindings.iter().enumerate() {
         let id = 0xA610 + index as i32;
-        if let Err(error) = unsafe {
+        if unsafe {
             RegisterHotKey(
                 None,
                 id,
                 MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
                 *key as u32,
             )
-        } {
-            for id in registered {
-                let _ = unsafe { UnregisterHotKey(None, id) };
-            }
-            return Err(format!("Ctrl+Shift+{} is already used or unavailable. Afterglow has released its other global bindings. Focused shortcuts remain available. ({error})", *key as char));
         }
-        registered.push(id);
+        .is_ok()
+        {
+            registered.push(id);
+        } else {
+            unavailable.push(format!("Ctrl+Shift+{}", *key as char));
+        }
+    }
+    if registered.is_empty() {
+        return Err("Windows could not register any Afterglow shortcuts. Free the keys in other apps and retry.".into());
     }
     // Ensure the thread message queue exists before exposing the thread ID.
     let mut pending = MSG::default();
@@ -52,15 +56,17 @@ pub fn run(app: &tauri::AppHandle) -> Result<(), String> {
         unsafe { windows::Win32::System::Threading::GetCurrentThreadId() },
         std::sync::atomic::Ordering::SeqCst,
     );
-    let _ = app.emit(
-        "shortcut-state",
-        "Global shortcuts enabled: Ctrl+Shift+F/D/B/A/M.",
-    );
+    let status = if unavailable.is_empty() {
+        "Global shortcuts enabled: Ctrl+Shift+F/D/B/A/M.".to_owned()
+    } else {
+        format!("Global shortcuts enabled. Unavailable: {}. Free these keys and disable and re-enable shortcuts to retry.", unavailable.join(", "))
+    };
+    let _ = app.emit("shortcut-state", status);
     let mut message = MSG::default();
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
         if message.message == WM_HOTKEY {
             if let Some((action, _)) = bindings.get(message.wParam.0.wrapping_sub(0xA610)) {
-                if app.get_webview_window("wallpaper").is_none() {
+                if !super::desktop::active(app) {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();

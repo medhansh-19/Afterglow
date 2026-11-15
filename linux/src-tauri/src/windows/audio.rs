@@ -441,19 +441,13 @@ fn analyze(
             let mut packet = Vec::with_capacity(frames as usize);
             for frame in 0..frames as usize {
                 let sample = if silent || pointer.is_null() {
-                    0.0
+                    Complex::new(0.0, 0.0)
                 } else {
-                    unsafe {
-                        let left = std::ptr::read_unaligned(pointer.add(frame * 8).cast::<f32>());
-                        let right =
-                            std::ptr::read_unaligned(pointer.add(frame * 8 + 4).cast::<f32>());
-                        let value = (left + right) * 0.5;
-                        if value.is_finite() {
-                            value.clamp(-1.0, 1.0)
-                        } else {
-                            0.0
-                        }
-                    }
+                    let channel = |offset| {
+                        let value = unsafe { std::ptr::read_unaligned(pointer.add(frame * 8 + offset).cast::<f32>()) };
+                        if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 }
+                    };
+                    Complex::new(channel(0), channel(4))
                 };
                 packet.push(sample);
             }
@@ -466,12 +460,9 @@ fn analyze(
                 if samples.len() == 2048 {
                     let mut rms = 0.0;
                     for (i, sample) in samples.iter().enumerate() {
-                        rms += sample * sample;
-                        bins[i] = Complex::new(
-                            sample
-                                * (0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / 2047.0).cos()),
-                            0.0,
-                        );
+                        rms += sample.norm_sqr() * 0.5;
+                        let window = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / 2047.0).cos();
+                        bins[i] = *sample * window;
                     }
                     fft.process(&mut bins);
                     let bands: Vec<f32> = (0..32)
@@ -481,9 +472,13 @@ fn analyze(
                             let high = (40.0_f32 * 400.0_f32.powf((b + 1) as f32 / 32.0) * 2048.0
                                 / 48_000.0)
                                 .ceil() as usize;
-                            let magnitude = bins[low.max(1)..high.max(low.max(1) + 1).min(1024)]
-                                .iter()
-                                .map(|v| v.norm() * 4.0 / 2048.0)
+                            // A packed stereo FFT preserves frequency energy even when
+                            // left and right have opposite phase.
+                            let magnitude = (low.max(1)..high.max(low.max(1) + 1).min(1024))
+                                .map(|i| {
+                                    ((bins[i].norm_sqr() + bins[2048 - i].norm_sqr()) * 0.5).sqrt()
+                                        * 4.0 / 2048.0
+                                })
                                 .fold(0.0_f32, f32::max);
                             ((20.0 * magnitude.max(1e-7).log10() + 65.0) / 60.0).clamp(0.0, 1.0)
                         })
