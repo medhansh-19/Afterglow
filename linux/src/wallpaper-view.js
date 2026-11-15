@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { createWindowsBeat } from "./windows-visuals";
 import { isWindows } from "./bridge";
 import { renderer } from "./render";
 import { listeningFooter, updateFooter } from "./listening-footer";
@@ -10,6 +11,7 @@ document.body.classList.toggle("windows-app", isWindows);
 document.body.innerHTML = `<main class="stage"><canvas id="waves" aria-hidden="true"></canvas><div id="clock" class="clock"></div><div id="graph" class="graph" role="img"></div>${listeningFooter({ interactive: false })}</main>`;
 const visual = renderer(document.querySelector("#waves"), document.querySelector("#graph"), document.querySelector("#clock"));
 const timeline = createDesktopState();
+const beatDetector = createWindowsBeat();
 let timer = 0, frame = 0, lastDraw = -Infinity, dirty = true, receivedState = false, presented = false;
 function wake() {
   const inset = Math.max(0, Number(window.__AFTERGLOW_INSET_BOTTOM__) || 0) / (devicePixelRatio || 1);
@@ -22,10 +24,31 @@ function wake() {
   if (!presented && receivedState) draw(performance.now());
   else frame = requestAnimationFrame(draw);
 }
-await listen("display-state", (event) => { timeline.receive(event.payload, performance.now()); receivedState = true; wake(); });
-await listen("audio-frame", (event) => { timeline.audio(event.payload, performance.now()); wake(); });
-await listen("audio-ended", () => { timeline.receive({ audioActive: false }, performance.now()); wake(); });
-await listen("power-state", (event) => { timeline.power(event.payload, performance.now()); wake(); });
+await listen("display-state", (event) => {
+  const now = performance.now();
+  timeline.receive(event.payload, now);
+  const { playing, audioActive } = timeline.frame(now);
+  if (!playing || !audioActive) beatDetector.reset();
+  receivedState = true;
+  wake();
+});
+await listen("audio-frame", (event) => {
+  const now = performance.now();
+  timeline.audio(event.payload, now);
+  const { playing, audioActive } = timeline.frame(now);
+  if (isWindows && playing && audioActive) beatDetector.receive(now, event.payload);
+  wake();
+});
+await listen("audio-ended", () => {
+  beatDetector.reset();
+  timeline.receive({ audioActive: false }, performance.now());
+  wake();
+});
+await listen("power-state", (event) => {
+  if (event.payload.sleeping) beatDetector.reset();
+  timeline.power(event.payload, performance.now());
+  wake();
+});
 new ResizeObserver(wake).observe(document.documentElement);
 // Listeners are installed before requesting the complete cached state (including wallpaper).
 await invoke("wallpaper_ready");
@@ -35,7 +58,7 @@ function draw(now) {
   const animated = state.playing && (state.settings.motion || state.audioActive) && !reduced;
   const interval = animated ? (state.onBattery ? 50 : 1000 / 30) : state.playing ? 100 : 1000;
   if (!state.sleeping && (now - lastDraw >= interval || (dirty && !state.playing))) {
-    visual.draw(now, state);
+    visual.draw(now, { ...state, beat: state.audioActive ? beatDetector.frame(now) : null });
     updateFooter(document, state.track, state.position);
     lastDraw = now; dirty = false;
     const canvas = document.querySelector("#waves");

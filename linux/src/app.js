@@ -1,4 +1,4 @@
-import { windowsAlbumAccent } from "./windows-visuals";
+import { createWindowsBeat, windowsAlbumAccent } from "./windows-visuals";
 import "./style.css";
 import { call, native, saveImage, isWindows, platformName } from "./bridge";
 import {
@@ -90,6 +90,7 @@ let library = newLibrary(),
   lastPreviewDraw = 0,
   lastPreviewSignature = "";
 document.body.classList.toggle("windows-app", isWindows);
+const beatDetector = createWindowsBeat();
 const visual = renderer($("#waves"), $("#graph"), $("#clock"));
 let scheduledTimer = 0,
   scheduledFrame = 0;
@@ -422,6 +423,7 @@ function captureCommand(command, args = {}, generation = captureGeneration) {
   return captureQueue;
 }
 async function stopCapture() {
+  beatDetector.reset();
   const generation = ++captureGeneration;
   captureActive = false;
   capturePending = false;
@@ -451,10 +453,13 @@ async function syncCapture() {
       audioIndex = source.index;
       audioBinary = source.binary;
     }
+    audioStarted = performance.now();
+    audioLastFrame = 0; audioLastSignal = 0;
+    beatDetector.reset();
     await captureCommand("audio_start", { index: audioIndex }, generation);
     if (generation !== captureGeneration) return;
     captureActive = true;
-    audioStarted = performance.now(); audioLastFrame = 0; audioLastSignal = 0; audioError = "";
+    audioError = "";
     if (
       sleeping || !sample?.playing ||
       (!desktop && !(isWindows && desktopTransition) && document.hidden) ||
@@ -1218,6 +1223,7 @@ if (native) {
     if (captureActive || capturePending) {
       audio = event.payload;
       audioLastFrame = performance.now();
+      if (isWindows) beatDetector.receive(audioLastFrame, audio);
       audioRevision++;
       if (!document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) wake(false);
       if (audio.level > .005 || audio.bands?.some((value) => value > .01)) audioLastSignal = audioLastFrame;
@@ -1225,6 +1231,7 @@ if (native) {
     }
   });
   await listen("audio-ended", (event) => {
+    beatDetector.reset();
     captureActive = false;
     audioIndex = null;
     audio = { level: 0, bands: [] };
@@ -1303,6 +1310,7 @@ function tick(now) {
     track?.duration || 120,
   );
   const liveAudio = isWindows && (!captureActive || now - audioLastFrame >= 320) ? { level: 0, bands: [] } : audio;
+  const beat = captureActive ? beatDetector.frame(now) : null;
   const signature = [
     key,
     lastLine.index,
@@ -1321,13 +1329,14 @@ function tick(now) {
       line: lastLine,
       playing: !!sample?.playing,
       audio: liveAudio,
+      beat,
       track,
     });
     lastRender = signature;
   }
   if (previewVisual && $("#panel").open &&
       ((sample?.playing && (isWindows ? captureActive : settings.motion) && now - lastPreviewDraw >= (onBattery ? 100 : 67)) || signature !== lastPreviewSignature)) {
-    previewVisual.draw(now, { settings, line: lastLine, playing: !!sample?.playing, audio: liveAudio, track });
+    previewVisual.draw(now, { settings, line: lastLine, playing: !!sample?.playing, audio: liveAudio, beat, track });
     lastPreviewDraw = now;
     lastPreviewSignature = signature;
     $("#preview-status").textContent = track ? `Current song · ${sample?.playing ? "Live" : "Paused"} preview` : "Connect a song to preview its lyrics.";

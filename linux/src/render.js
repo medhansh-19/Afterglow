@@ -1,12 +1,11 @@
 import { ribbonMesh } from "./ribbon-mesh";
 import { graphSvgMarkup } from "./lyric-graph";
 import { isWindows } from "./bridge";
-import { createWindowsBeat, windowsWaves } from "./windows-visuals";
+import { windowsWaves } from "./windows-visuals";
 import { clockMarkup } from "./clock-preview";
 export function renderer(canvas, graph, clock) {
   const ctx = canvas.getContext("2d");
   let invalidation = 0;
-  const beat = createWindowsBeat();
   let w = 0,
     h = 0,
     phase = 0,
@@ -29,7 +28,7 @@ export function renderer(canvas, graph, clock) {
   const observer = new ResizeObserver(resize);
   observer.observe(canvas);
   resize();
-  function draw(now, { settings, line, playing, audio, track }) {
+  function draw(now, { settings, line, playing, audio, track, beat }) {
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
     last = now;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -78,7 +77,7 @@ export function renderer(canvas, graph, clock) {
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
     const mesh = isWindows
-      ? windowsWaves(w, h, audio.bands || [], beat(now, playing ? audio : {}, dt), settings.motion && !reduced, now)
+      ? (playing && beat ? windowsWaves(w, h, beat.bands, beat.pulse, settings.motion && !reduced, now) : [])
       : ribbonMesh({
       width: w,
       height: h,
@@ -97,7 +96,7 @@ export function renderer(canvas, graph, clock) {
         j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       });
       ctx.globalAlpha = isWindows
-        ? (line.words.length ? .14 : .52) * (i === 3 ? 1 : .55)
+        ? (line.words.length ? .46 : .7) * Math.min(1, beat.pulse * 2) * (i === 3 ? 1 : .52)
         : (line.words.length ? .18 : .6) * (i === 8 ? 1 : .45);
       ctx.lineWidth = i === (isWindows ? 3 : 8) ? 1.4 : 0.7;
       ctx.stroke();

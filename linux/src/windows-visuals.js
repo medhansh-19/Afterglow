@@ -38,40 +38,58 @@ export function windowsAlbumAccent(rgba) {
 }
 
 export function createWindowsBeat() {
-  let previous = null, bassFloor = 0, pulse = 0, peakAt = -Infinity;
-  return (now, audio, dt) => {
-    pulse *= Math.exp(-dt * 10);
-    if (audio.bands?.length !== 32) {
-      previous = null;
-      bassFloor = 0;
-      pulse = 0;
-      peakAt = -Infinity;
-      return 0;
-    }
-    if (audio !== previous) {
-      const bass = audio.bands.slice(0, 8).reduce((sum, band) => sum + band, 0) / 8;
-      const onset = bass - bassFloor;
-      if (bass > .12 && onset > .065 && now - peakAt >= 135) {
-        pulse = Math.min(1, onset * 3);
-        peakAt = now;
+  let lastFrame = -Infinity, lastHit = -Infinity, strength = 0, hitBands = [];
+  let floor = [0, 0, 0];
+  let previous = [0, 0, 0];
+  return {
+    reset() {
+      lastFrame = lastHit = -Infinity;
+      strength = 0;
+      hitBands = [];
+      floor = [0, 0, 0];
+      previous = [0, 0, 0];
+    },
+    receive(now, { level, bands }) {
+      if (bands?.length !== 32) return;
+      if (now - lastFrame > 320) this.reset();
+      lastFrame = now;
+      const mean = (from, to) => bands.slice(from, to).reduce((sum, value) => sum + value, 0) / (to - from);
+      // Follow kick, snare and overall level independently so a steady bassline
+      // cannot mask a drum transient in a different band.
+      const energy = [mean(0, 7), mean(11, 25), level || 0];
+      let attack = 0;
+      for (let i = 0; i < energy.length; i++) {
+        const rise = energy[i] - previous[i];
+        const aboveFloor = energy[i] - floor[i];
+        if (energy[i] >= .035 && rise > .012 && aboveFloor > .018)
+          attack = Math.max(attack, Math.min(rise * 5, aboveFloor * 3));
+        floor[i] += aboveFloor * (aboveFloor > 0 ? .25 : .12);
       }
-      bassFloor += onset * (onset > 0 ? .28 : .17);
-      previous = audio;
-    }
-    return pulse > .045 ? pulse : 0;
+      previous = energy;
+      if (attack && now - lastHit >= 125) {
+        lastHit = now;
+        strength = Math.max(.55, Math.min(1, attack));
+        hitBands = bands;
+      }
+    },
+    frame(now) {
+      const age = now - lastHit;
+      if (age >= 420 || now - lastFrame >= 320) return null;
+      return { pulse: strength * Math.exp(-Math.max(0, age - 115) / 125), bands: hitBands };
+    },
   };
 }
 
 export function windowsWaves(width, height, bands, pulse, animate, now) {
   if (!pulse || bands.length !== 32) return [];
-  const amplitude = Math.min(height * .085, width * .07, 76) * pulse;
+  const amplitude = Math.min(height * .105, width * .085, 88) * pulse;
   // Log-spaced WASAPI bands map to shorter wavelengths as frequency rises.
   // Each band's measured energy controls height independently of wavelength.
   const harmonics = Array.from({ length: 8 }, (_, i) => {
     const group = bands.slice(i * 4, i * 4 + 4);
     return { cycles: 1.5 * 1.35 ** i, strength: Math.max(...group) ** 2 / (i + 1) ** .6 };
   });
-  const total = Math.max(1, harmonics.reduce((sum, band) => sum + band.strength, 0));
+  const total = Math.max(.001, harmonics.reduce((sum, band) => sum + band.strength, 0));
   const phase = animate ? now / 440 : 0;
   return Array.from({ length: 7 }, (_, ribbon) => Array.from({ length: 161 }, (_, i) => {
     const x = i / 160;
