@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ribbonMesh } from "../../linux/src/ribbon-mesh.js";
-import { createWindowsBeat, windowsWaves } from "../../linux/src/windows-visuals.js";
+import { createWindowsBeat, windowsWaveMode, windowsWaves } from "../../linux/src/windows-visuals.js";
 import { appearanceSky } from "../../linux/src/appearance-sky.js";
 import { createNotice } from "../../linux/src/notice.js";
 
@@ -49,7 +49,7 @@ test("notices expire, replace safely, pause on interaction and dismiss", () => {
   assert.equal(pending.size, 0);
 });
 
-test("quiet drum hits stay visible over steady audio between draws and then fade", () => {
+test("quiet drum hits over steady audio form distinct ribbons and then fade", () => {
   const detector = createWindowsBeat();
   const bassline = { level: .1, bands: Array(32).fill(.08) };
   const snare = { level: .12, bands: bassline.bands.map((value, i) => i >= 11 && i < 25 ? .12 : value) };
@@ -62,11 +62,23 @@ test("quiet drum hits stay visible over steady audio between draws and then fade
   assert.equal(hit.bands, snare.bands);
   const mesh = windowsWaves(1920, 1080, hit.bands, hit.pulse, false, 755);
   const heights = mesh.flat().map(point => Math.abs(point.y - 540));
-  assert.ok(Math.max(...heights) > 16);
+  assert.ok(Math.max(...heights) > 45);
+  assert.ok(Math.abs(mesh[0][60].y - mesh.at(-1)[60].y) > 12);
   assert.ok(Math.max(...heights) < 110);
   for (let now = 760; now <= 1120; now += 40) detector.receive(now, bassline);
   assert.equal(detector.frame(1120), null);
   detector.receive(1160, snare);
   assert.ok(detector.frame(1160));
   assert.equal(detector.frame(1480), null);
+});
+
+test("Windows displays waves only in lyric gaps and gates synced waves on a beat", () => {
+  const pulse = { pulse: .8, bands: Array(32).fill(.08) };
+  assert.equal(windowsWaveMode(true, ["lyrics"], false, null), null);
+  assert.equal(windowsWaveMode(true, ["lyrics"], true, pulse), null);
+  assert.equal(windowsWaveMode(true, [], false, null), "standard");
+  assert.equal(windowsWaveMode(true, [], true, null), null);
+  assert.equal(windowsWaveMode(true, [], true, pulse), "beat");
+  assert.equal(windowsWaveMode(false, [], false, null), null);
+  assert.equal(windowsWaveMode(false, [], true, pulse), null);
 });

@@ -1,7 +1,7 @@
 import { ribbonMesh } from "./ribbon-mesh";
 import { graphSvgMarkup } from "./lyric-graph";
 import { isWindows } from "./bridge";
-import { windowsWaves } from "./windows-visuals";
+import { windowsWaveMode, windowsWaves } from "./windows-visuals";
 import { clockMarkup } from "./clock-preview";
 export function renderer(canvas, graph, clock) {
   const ctx = canvas.getContext("2d");
@@ -28,7 +28,7 @@ export function renderer(canvas, graph, clock) {
   const observer = new ResizeObserver(resize);
   observer.observe(canvas);
   resize();
-  function draw(now, { settings, line, playing, audio, track, beat }) {
+  function draw(now, { settings, line, playing, audio, track, beat, beatEnabled }) {
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
     last = now;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -76,8 +76,10 @@ export function renderer(canvas, graph, clock) {
     glow.addColorStop(1, "#09090b00");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
+    const waveMode = isWindows ? windowsWaveMode(playing, line.words, beatEnabled, beat) : null;
+    const pulse = waveMode === "beat" ? beat.pulse : .64;
     const mesh = isWindows
-      ? (playing && beat ? windowsWaves(w, h, beat.bands, beat.pulse, settings.motion && !reduced, now) : [])
+      ? (waveMode ? windowsWaves(w, h, waveMode === "beat" ? beat.bands : [], pulse, settings.motion && !reduced, now) : [])
       : ribbonMesh({
       width: w,
       height: h,
@@ -89,6 +91,7 @@ export function renderer(canvas, graph, clock) {
       reducedMotion: reduced,
     });
     ctx.strokeStyle = settings.color;
+    ctx.shadowColor = settings.color;
     mesh.forEach((points, i) => {
       ctx.beginPath();
       points.forEach((p, j) => {
@@ -96,11 +99,13 @@ export function renderer(canvas, graph, clock) {
         j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
       });
       ctx.globalAlpha = isWindows
-        ? (line.words.length ? .46 : .7) * Math.min(1, beat.pulse * 2) * (i === 3 ? 1 : .52)
+        ? Math.min(1, pulse * 2) * (i === 8 ? .92 : .22 + (i % 4) * .08)
         : (line.words.length ? .18 : .6) * (i === 8 ? 1 : .45);
-      ctx.lineWidth = i === (isWindows ? 3 : 8) ? 1.4 : 0.7;
+      ctx.lineWidth = i === 8 ? (isWindows ? 1.7 : 1.4) : .75;
+      ctx.shadowBlur = isWindows && i === 8 ? 5 : 0;
       ctx.stroke();
     });
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     const nextKey = JSON.stringify([
       line.words,

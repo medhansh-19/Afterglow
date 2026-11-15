@@ -80,24 +80,30 @@ export function createWindowsBeat() {
   };
 }
 
+export function windowsWaveMode(playing, words, beatEnabled, beat) {
+  if (!playing || words.length) return null;
+  if (!beatEnabled) return "standard";
+  return beat ? "beat" : null;
+}
+
 export function windowsWaves(width, height, bands, pulse, animate, now) {
-  if (!pulse || bands.length !== 32) return [];
-  const amplitude = Math.min(height * .105, width * .085, 88) * pulse;
-  // Log-spaced WASAPI bands map to shorter wavelengths as frequency rises.
-  // Each band's measured energy controls height independently of wavelength.
-  const harmonics = Array.from({ length: 8 }, (_, i) => {
-    const group = bands.slice(i * 4, i * 4 + 4);
-    return { cycles: 1.5 * 1.35 ** i, strength: Math.max(...group) ** 2 / (i + 1) ** .6 };
-  });
-  const total = Math.max(.001, harmonics.reduce((sum, band) => sum + band.strength, 0));
-  const phase = animate ? now / 440 : 0;
-  return Array.from({ length: 7 }, (_, ribbon) => Array.from({ length: 161 }, (_, i) => {
-    const x = i / 160;
-    const wave = harmonics.reduce((sum, { cycles, strength }, band) =>
-      sum + strength * Math.sin(x * cycles * 2 * Math.PI - phase * (1 + band * .24) + ribbon * .13), 0);
+  if (pulse <= 0) return [];
+  const amplitude = Math.min(height * .15, width * .12, 158) * pulse;
+  const bass = bands.slice(0, 8).reduce((sum, value) => sum + value, 0);
+  const treble = bands.slice(16).reduce((sum, value) => sum + value, 0);
+  // Shorten the overtone wavelength as the spectral balance rises, while
+  // keeping the broad curves of the main ribbon readable.
+  const overtone = bands.length ? 2.8 + 3.2 * treble / Math.max(.1, treble + bass * 2) : 3.5;
+  const phase = animate ? now / 570 : 0;
+  return Array.from({ length: 17 }, (_, ribbon) => Array.from({ length: 121 }, (_, i) => {
+    const x = i / 120;
+    const layer = ribbon - 8;
+    const fan = Math.sin(x * Math.PI) * (.65 + .35 * Math.sin(x * 7 - phase * .55));
+    const primary = Math.sin(x * 3.2 * Math.PI - phase + layer * .09);
+    const secondary = Math.sin(x * overtone * 2 * Math.PI + phase * .72 + layer * .13);
     return {
       x: x * width,
-      y: height / 2 + amplitude * Math.sin(Math.PI * x) * (wave / total + (ribbon - 3) * .09),
+      y: height / 2 + amplitude * (.61 * primary + .22 * secondary + layer * .045 * fan),
     };
   }));
 }
