@@ -307,7 +307,7 @@ public static class AfterglowSmokeWindow {
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'lyrics:demo' }).Count -gt $demoCount } 'Desktop demo did not load.'
     $baselinePixels = Capture-DesktopSignal
     Invoke-Button 'Controls'
-    Invoke-Button 'Desktop'
+    [System.Windows.Forms.SendKeys]::SendWait('^+d')
     Wait-Until { [AfterglowSmokeWindow]::WallpaperParent($application.Id) -ne 0 } 'Wallpaper parent was never attached.' 45
     $selectedParent = [AfterglowSmokeWindow]::WallpaperParent($application.Id)
     if ($desktopFixture -and $selectedParent -ne [AfterglowSmokeWindow]::ExpectedOwner -and (Get-Process -Id $selectedParent).ProcessName -eq 'explorer') {
@@ -351,8 +351,7 @@ public static class AfterglowSmokeWindow {
     }
     Wait-Until { @((Get-Content $log) | Where-Object { $_ -eq 'desktop-ready' }).Count -gt $readyCount -and [AfterglowSmokeWindow]::ValidateDesktop($application.Id) -eq '' } 'Wallpaper did not reconnect after Explorer restarted.' 45
     if (-not [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle)) { throw 'Desktop recovery hid the controls the user had reopened.' }
-    $restore = Start-Process $AppPath -ArgumentList '--action', 'desktop' -PassThru
-    $restore.WaitForExit(10000) | Out-Null
+    [System.Windows.Forms.SendKeys]::SendWait('^+d')
     Wait-Until { [AfterglowSmokeWindow]::Wallpapers($application.Id).Count -eq 0 -and [AfterglowSmokeWindow]::IsWindowVisible($application.MainWindowHandle) } 'Stopping Desktop Mode left an orphan wallpaper or hidden controls.'
     Write-Host "PASS native full-monitor $desktopHost parenting, click-through styles, first-frame handshake, controls restore, host restart recovery and cleanup"
   }
@@ -388,7 +387,10 @@ public static class AfterglowSmokeWindow {
   } catch { Write-Warning "Could not capture failure diagnostics: $_" }
   throw
 } finally {
-  if ($application -and -not $application.HasExited) { Stop-Process -Id $application.Id -Force -ErrorAction SilentlyContinue }
+  if ($application -and -not $application.HasExited) {
+    $application.Kill($true)
+    $application.WaitForExit(5000) | Out-Null
+  }
   if ($desktopFixture -and -not $desktopFixture.HasExited) { Stop-Process -Id $desktopFixture.Id -Force -ErrorAction SilentlyContinue }
   if ($shellRestartChanged) {
     if ($null -eq $originalShellRestart) { Remove-ItemProperty $shellKey -Name AutoRestartShell -ErrorAction SilentlyContinue }

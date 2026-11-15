@@ -47,7 +47,7 @@ def accept(platform, packages, runner, baseline, output):
     output.mkdir(parents=True, exist_ok=True)
     config = ROOT / ('windows/tauri.windows.conf.json' if platform == 'windows' else 'linux/src-tauri/tauri.conf.json')
     version = json.loads(config.read_text())['version']
-    with tempfile.TemporaryDirectory(prefix='afterglow-update-acceptance-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='afterglow-update-acceptance-', ignore_cleanup_errors=platform == 'windows') as temporary:
         work = Path(temporary)
         server_root = work/'server'; server_root.mkdir()
         payloads = {}
@@ -70,7 +70,7 @@ def accept(platform, packages, runner, baseline, output):
         for value in bad['platforms'].values(): value['signature'] = 'invalid-signature'
         (server_root/'bad.json').write_text(json.dumps(bad))
         reports = []
-        def invoke(binary, destination, mode, current='0.1.1', feed='good.json', root=False):
+        def invoke(binary, destination, mode, current='0.2.1', feed='good.json', root=False):
             report = output/f'{len(reports):02d}-{mode}.json'
             args = [str(binary), str(config), current, (feed if feed.startswith('http://127.0.0.1:') else base+'/'+feed), str(destination), mode, str(report)]
             if root: args = ['sudo', *args]
@@ -81,7 +81,7 @@ def accept(platform, packages, runner, baseline, output):
             if platform == 'windows':
                 executable = work/'installed/afterglow-windows.exe'
                 old = one(baseline, '*setup.exe')
-                assert digest(old) == 'f9a877d71ba2f2ced8ac83a668ebc4650e964bba6706b0a1676799967766e6c7', 'Published baseline differs from accepted 0.1.1'
+                assert digest(old) == 'e4abc02bd0b851c3a4bf0638e06f92cf11f094a8e28b82796a1e4602099de558', 'Published baseline differs from accepted 0.2.1'
                 install = subprocess.run([str(old),'/S',f'/D={executable.parent}'],check=True)
                 windows_smoke(executable,output/'before')
                 line = next(line for line in (output/'before/native.log').read_text().splitlines() if line.startswith('library-path:'))
@@ -92,7 +92,7 @@ def accept(platform, packages, runner, baseline, output):
                 saved = digest(library)
                 binary = patch_runner(runner,work/'nsis-acceptance.exe','NSS')
                 before = digest(executable)
-                for mode, current, feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.1.1','bad.json'),('reject','0.1.1','missing.json'),('reject','0.1.1',offline),('verify','0.1.1','good.json')]:
+                for mode, current, feed in [('none',version,'good.json'),('none','99.0.0','good.json'),('reject','0.2.1','bad.json'),('reject','0.2.1','missing.json'),('reject','0.2.1',offline),('verify','0.2.1','good.json')]:
                     invoke(binary,executable,mode,current,feed)
                     assert digest(executable)==before and digest(library)==saved, 'Check/download changed installation or data'
                 invoke(binary,executable,'install')

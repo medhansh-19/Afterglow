@@ -444,8 +444,14 @@ fn analyze(
                     Complex::new(0.0, 0.0)
                 } else {
                     let channel = |offset| {
-                        let value = unsafe { std::ptr::read_unaligned(pointer.add(frame * 8 + offset).cast::<f32>()) };
-                        if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 }
+                        let value = unsafe {
+                            std::ptr::read_unaligned(pointer.add(frame * 8 + offset).cast::<f32>())
+                        };
+                        if value.is_finite() {
+                            value.clamp(-1.0, 1.0)
+                        } else {
+                            0.0
+                        }
                     };
                     Complex::new(channel(0), channel(4))
                 };
@@ -477,7 +483,8 @@ fn analyze(
                             let magnitude = (low.max(1)..high.max(low.max(1) + 1).min(1024))
                                 .map(|i| {
                                     ((bins[i].norm_sqr() + bins[2048 - i].norm_sqr()) * 0.5).sqrt()
-                                        * 4.0 / 2048.0
+                                        * 4.0
+                                        / 2048.0
                                 })
                                 .fold(0.0_f32, f32::max);
                             ((20.0 * magnitude.max(1e-7).log10() + 65.0) / 60.0).clamp(0.0, 1.0)

@@ -192,8 +192,7 @@ fn create(app: &tauri::AppHandle, label: &str, host: Host, screen: &Screen) -> R
             SetWindowLongPtrW(
                 native,
                 GWL_STYLE,
-                ((style & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0)) | WS_CHILD.0)
-                    as isize,
+                ((style & !(WS_POPUP.0 | WS_CAPTION.0 | WS_THICKFRAME.0)) | WS_CHILD.0) as isize,
             );
             let extended = GetWindowLongPtrW(native, GWL_EXSTYLE) as u32;
             let frame_edges = WS_EX_CLIENTEDGE.0 | WS_EX_WINDOWEDGE.0 | WS_EX_STATICEDGE.0;
@@ -330,17 +329,17 @@ pub fn ready(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<bool, String> {
     let desktop = app.state::<Desktop>();
     if !desktop.enabled.load(Ordering::SeqCst) {
-        return Ok(());
+        return Ok(true);
     }
     let mut layout = desktop.layout.lock().unwrap();
     let Some(current) = layout.as_mut() else {
-        return Ok(());
+        return Ok(false);
     };
     if !current.labels.iter().any(|s| s == label) {
-        return Ok(());
+        return Ok(false);
     }
     if let Some(window) = app.get_webview_window(label) {
         unsafe {
@@ -361,7 +360,7 @@ pub fn presented(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    Ok(true)
 }
 pub fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     // WebView2 creation deadlocks in synchronous commands and event handlers.

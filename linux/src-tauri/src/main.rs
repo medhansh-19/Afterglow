@@ -258,13 +258,14 @@ fn wallpaper_ready(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resul
     display::ready(&app, window.label())
 }
 #[tauri::command]
-fn wallpaper_presented(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+fn wallpaper_presented(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<bool, String> {
     if !display::is_wallpaper(window.label()) {
         return Err("This command belongs to the wallpaper renderer.".into());
     }
     #[cfg(target_os = "windows")]
-    windows::desktop::presented(&app, window.label())?;
-    Ok(())
+    return windows::desktop::presented(&app, window.label());
+    #[cfg(not(target_os = "windows"))]
+    Ok(true)
 }
 #[tauri::command]
 fn disable_shortcuts(app: tauri::AppHandle) -> Result<(), String> {

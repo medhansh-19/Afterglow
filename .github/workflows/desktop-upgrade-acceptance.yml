@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows, linux]
+        platform: ${{ fromJSON(inputs.windows_run && inputs.linux_run && '["windows","linux"]' || inputs.windows_run && '["windows"]' || '["linux"]') }}
     runs-on: ${{ matrix.platform == 'windows' && 'windows-2025' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     env:
@@ -63,7 +63,7 @@ jobs:
         run: |
           mkdir baseline
           if [ '${{ matrix.platform }}' = windows ]; then
-            gh release download windows-v0.1.1 --repo "$GITHUB_REPOSITORY" --pattern Afterglow-windows-x64-setup.exe --dir baseline
+            gh release download windows-v0.2.1 --repo "$GITHUB_REPOSITORY" --pattern Afterglow-windows-x64-setup.exe --dir baseline
           else
             gh release download v3.0.7-preview.1 --repo "$GITHUB_REPOSITORY" --pattern '*amd64.deb' --pattern '*amd64.AppImage' --dir baseline
           fi

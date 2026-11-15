@@ -41,7 +41,11 @@ function draw(now) {
     const canvas = document.querySelector("#waves");
     if (!presented && receivedState && canvas.width > 0 && canvas.height > 0) {
       presented = true;
-      invoke("wallpaper_presented").catch(() => { presented = false; });
+      invoke("wallpaper_presented").then((attached) => {
+        if (attached !== false) return;
+        presented = false;
+        setTimeout(wake, 100);
+      }).catch(() => { presented = false; });
     }
   }
   timer = setTimeout(() => { frame = requestAnimationFrame(draw); }, animated ? 0 : interval);
